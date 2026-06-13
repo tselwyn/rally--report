@@ -1,20 +1,69 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+
+// ---------- ROSTER ----------
+const ROSTER = [
+  { name: "Aboudi Tayara", teamId: "166714797" },
+  { name: "Adrian Gacu", teamId: "163102950" },
+  { name: "Andy Wolfenbarger", teamId: "131924864" },
+  { name: "Brian Houk", teamId: "167226075" },
+  { name: "Cameron Jennings", teamId: "159497364" },
+  { name: "Cameron Miller", teamId: "148915878" },
+  { name: "Charles Jennings", teamId: "144958849" },
+  { name: "Chris Curtin", teamId: "135138017" },
+  { name: "Chris Mallory", teamId: "133465411" },
+  { name: "Christian Aviles", teamId: "165933825" },
+  { name: "Cody Abelende", teamId: "140580583" },
+  { name: "Cole McCommons", teamId: "142685566" },
+  { name: "Curtis Harris", teamId: "131830767" },
+  { name: "Dave Bryant", teamId: "156433303" },
+  { name: "Derrick Owusu-Ababio", teamId: "153926795" },
+  { name: "Deven Jani", teamId: "141447343" },
+  { name: "Dusten Rees", teamId: "131877764" },
+  { name: "Dylan Schwarzmann", teamId: "132488388" },
+  { name: "Felix Asamoah-Darko", teamId: "151665522" },
+  { name: "Frank Graves", teamId: "131877798" },
+  { name: "Freedman Kim", teamId: "133541428" },
+  { name: "Gregg Sprow", teamId: "131877763" },
+  { name: "Gustavo Elias", teamId: "166385247" },
+  { name: "Hugo Navia", teamId: "161181043" },
+  { name: "Jahrome Fletcher", teamId: "165785641" },
+  { name: "Jamie Bronson", teamId: "144638525" },
+  { name: "Jeff Trexel", teamId: "141873753" },
+  { name: "Joel Pittman", teamId: "148156023" },
+  { name: "Jose Ordonez", teamId: "131877815" },
+  { name: "Kay Adjei", teamId: "140132996" },
+  { name: "Lorenzo Cruz", teamId: "166016861" },
+  { name: "Lucas Umberger", teamId: "132637509" },
+  { name: "Luis Aragon", teamId: "165196037" },
+  { name: "Mark Willis", teamId: "166863724" },
+  { name: "Matt Freitag", teamId: "133465394" },
+  { name: "Matt Selwyn", teamId: "131830724" },
+  { name: "Max Freitag", teamId: "132673552" },
+  { name: "Moe Cornejo", teamId: "131877779" },
+  { name: "Monica Borobia", teamId: "160701578" },
+  { name: "Nathan Nguyen", teamId: "163994833" },
+  { name: "Nico Rublein", teamId: "131830762" },
+  { name: "Omari Bailey", teamId: "166003841" },
+  { name: "Owen Seely", teamId: "131830730" },
+  { name: "Patrick Phan", teamId: "148205059" },
+  { name: "Rameez Syed", teamId: "147690599" },
+  { name: "Ryan Wolfenbarger", teamId: "141363254" },
+  { name: "Sara Abebe", teamId: "167341230" },
+  { name: "Sean Park", teamId: "137693572" },
+  { name: "Thad Thompson", teamId: "140067971" },
+  { name: "Tyler Selwyn", teamId: "159997966" },
+];
+
+const logUrl = (teamId) =>
+  `https://app.tennisrungs.com/Public/PlayerMatches?teamId=${teamId}`;
 
 // ---------- PARSING ----------
 const ROW_RE =
   /(\d{1,2}\/\d{1,2}\/\d{4})[\s|]*#?(\d+)?\s*([A-Za-zÀ-ÿ.'\- ]+?)[\s|]+(W|L)[\s|]+([\s\S]*?)(?=\d{1,2}\/\d{1,2}\/\d{4}|Copyright|$)/g;
 
-// Pull the player's name from the page if we can find it
-function extractPlayerName(doc) {
-  const h1 = doc.querySelector("h1");
-  if (h1) return h1.textContent.replace(/-?\s*Match Log/i, "").trim();
-  return "";
-}
-
-// Convert the fetched HTML into clean "date | rank name | result | score" lines
 function htmlToRows(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const name = extractPlayerName(doc);
   const rows = [...doc.querySelectorAll("table tr")]
     .map((tr) =>
       [...tr.querySelectorAll("td")]
@@ -23,7 +72,7 @@ function htmlToRows(html) {
     )
     .filter(Boolean)
     .join("\n");
-  return { text: rows || doc.body.textContent, name };
+  return rows || doc.body.textContent;
 }
 
 function parseLog(text) {
@@ -65,20 +114,10 @@ function computeStats(ms) {
     x.win ? h2h[x.opp].w++ : h2h[x.opp].l++;
   });
 
-  let bestW = 0,
-    bestL = 0,
-    curW = 0,
-    curL = 0;
+  let bestW = 0, bestL = 0, curW = 0, curL = 0;
   ms.forEach((x) => {
-    if (x.win) {
-      curW++;
-      curL = 0;
-      if (curW > bestW) bestW = curW;
-    } else {
-      curL++;
-      curW = 0;
-      if (curL > bestL) bestL = curL;
-    }
+    if (x.win) { curW++; curL = 0; if (curW > bestW) bestW = curW; }
+    else { curL++; curW = 0; if (curL > bestL) bestL = curL; }
   });
   const last = ms[ms.length - 1];
   let curStreak = 1;
@@ -174,20 +213,28 @@ function Big({ v, sub, color }) {
   );
 }
 
+function Logo({ size = 26 }) {
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: C.ball, position: "relative", overflow: "hidden", boxShadow: "inset -3px -3px 0 rgba(0,0,0,0.2)", flexShrink: 0 }}>
+      <div style={{ position: "absolute", inset: 0, borderTop: `2.5px solid ${C.court}`, borderRadius: "50%", transform: "rotate(-30deg) translateY(6px)" }} />
+    </div>
+  );
+}
+
 function Scoreboard({ s, name }) {
   return (
     <div style={{ background: C.clay, border: `2px solid ${C.line}`, borderRadius: 4, padding: "28px 24px", textAlign: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: "50%", width: 2, height: "100%", background: "rgba(245,242,232,0.12)" }} />
       <div style={{ fontSize: 12, letterSpacing: 4, color: C.mute, textTransform: "uppercase", fontFamily: "ui-monospace, monospace" }}>
-        {name ? `${name} — Career Record` : "Career Record"}
+        {name ? `${name} \u2014 Career Record` : "Career Record"}
       </div>
       <div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: 18, marginTop: 8 }}>
         <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "clamp(52px, 12vw, 88px)", fontWeight: 700, color: C.ball, lineHeight: 1 }}>{s.wins}</span>
-        <span style={{ fontSize: 28, color: C.mute }}>–</span>
+        <span style={{ fontSize: 28, color: C.mute }}>\u2013</span>
         <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "clamp(52px, 12vw, 88px)", fontWeight: 700, color: C.line, lineHeight: 1 }}>{s.losses}</span>
       </div>
       <div style={{ marginTop: 10, fontSize: 14, color: C.mute, fontFamily: "ui-monospace, monospace" }}>
-        {s.winPct.toFixed(1)}% · {s.total} matches · {s.oppCount} opponents · {fmtD(s.firstDate)} → {fmtD(s.lastDate)}
+        {s.winPct.toFixed(1)}% \u00b7 {s.total} matches \u00b7 {s.oppCount} opponents \u00b7 {fmtD(s.firstDate)} \u2192 {fmtD(s.lastDate)}
       </div>
     </div>
   );
@@ -269,47 +316,47 @@ function Insights({ s }) {
   const rival = [...h2hArr].sort((a, b) => b.total - a.total)[0];
   if (rival && rival.total >= 4)
     items.push(
-      `Biggest rivalry: ${rival.opp} — ${rival.total} matches, ${rival.w}-${rival.l}. ${
+      `Biggest rivalry: ${rival.opp} \u2014 ${rival.total} matches, ${rival.w}-${rival.l}. ${
         Math.abs(rival.w - rival.l) <= 2
           ? "Dead even. This one's personal."
           : rival.w > rival.l
-          ? "You own this matchup."
-          : "Time to flip the script."
+          ? "Owns this matchup."
+          : "Trails this one."
       }`
     );
   const owned = h2hArr.filter((r) => r.total >= 4 && r.l === 0).sort((a, b) => b.total - a.total)[0];
-  if (owned) items.push(`Total ownership: ${owned.w}-0 against ${owned.opp}. They may want to stop challenging you.`);
+  if (owned) items.push(`Total ownership: ${owned.w}-0 against ${owned.opp}.`);
   const krypt = h2hArr.filter((r) => r.total >= 4 && r.w === 0).sort((a, b) => b.total - a.total)[0];
-  if (krypt) items.push(`Kryptonite: 0-${krypt.l} vs ${krypt.opp}. Film study required.`);
+  if (krypt) items.push(`Kryptonite: 0-${krypt.l} vs ${krypt.opp}.`);
   if (s.stb.total >= 5) {
     const cp = pct(s.stb.w, s.stb.l);
     items.push(
-      `${Math.round((s.stb.total / s.total) * 100)}% of your matches went to a deciding super tiebreak (${s.stb.w}-${s.stb.l}). ${
-        cp >= 55 ? "You're clutch when it counts." : "Closing tight matches is the single biggest lever in your record."
+      `${Math.round((s.stb.total / s.total) * 100)}% of matches went to a deciding super tiebreak (${s.stb.w}-${s.stb.l}). ${
+        cp >= 55 ? "Clutch when it counts." : "Closing tight matches is the biggest lever here."
       }`
     );
   }
-  if (s.topWins.length) items.push(`Giant killer: ${s.topWins.length} win${s.topWins.length > 1 ? "s" : ""} over the #1 ranked player on the ladder.`);
-  if (s.doubleBagels.length) items.push(`Double bagels served: ${s.doubleBagels.length} (6-0, 6-0). Ruthless.`);
+  if (s.topWins.length) items.push(`Giant killer: ${s.topWins.length} win${s.topWins.length > 1 ? "s" : ""} over the #1 ranked player.`);
+  if (s.doubleBagels.length) items.push(`Double bagels served: ${s.doubleBagels.length} (6-0, 6-0).`);
   if (s.recent.total >= 8) {
     const rp = pct(s.recent.w, s.recent.l);
     items.push(
-      `Last 12 months: ${s.recent.w}-${s.recent.l} (${rp}%) — ${
+      `Last 12 months: ${s.recent.w}-${s.recent.l} (${rp}%) \u2014 ${
         rp > s.winPct + 3
-          ? "you're trending up, playing your best tennis right now."
+          ? "trending up, playing their best tennis right now."
           : rp < s.winPct - 3
-          ? "below your career pace. Time to grind."
-          : "right on your career pace."
+          ? "below career pace lately."
+          : "right on career pace."
       }`
     );
   }
   if (s.busiest) items.push(`Busiest month historically: ${s.busiest[0]} (${s.busiest[1]} matches).`);
   return (
     <div>
-      <Label>Coach's notes</Label>
+      <Label>Scouting notes</Label>
       {items.map((t, i) => (
         <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", fontSize: 14, lineHeight: 1.5, color: C.line, borderBottom: i < items.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none" }}>
-          <span style={{ color: C.ball, flexShrink: 0 }}>›</span>
+          <span style={{ color: C.ball, flexShrink: 0 }}>\u203a</span>
           <span>{t}</span>
         </div>
       ))}
@@ -317,156 +364,160 @@ function Insights({ s }) {
   );
 }
 
+function Report({ stats, name }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <Scoreboard s={stats} name={name} />
+      </div>
+      <Card span><FormStrip ms={stats.ms} /></Card>
+      <Card>
+        <Label>Streaks</Label>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <Big v={stats.bestW} sub="longest win streak" color={C.ball} />
+          <Big v={stats.bestL} sub="longest skid" color={C.red} />
+          <Big v={`${stats.curStreak.win ? "W" : "L"}${stats.curStreak.len}`} sub="current streak" color={stats.curStreak.win ? C.ball : C.red} />
+        </div>
+      </Card>
+      <Card>
+        <Label>Clutch</Label>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <Big v={`${stats.stb.w}-${stats.stb.l}`} sub="deciding super tiebreaks" color={stats.stb.w >= stats.stb.l ? C.ball : C.red} />
+          <Big v={stats.tbSets} sub="sets to 7-6" />
+          <Big v={stats.bagelSets} sub="6-0 sets" />
+        </div>
+      </Card>
+      <Card span><YearBars byYear={stats.byYear} /></Card>
+      <Card span><H2H h2h={stats.h2h} /></Card>
+      <Card span><Insights s={stats} /></Card>
+    </div>
+  );
+}
+
 // ---------- APP ----------
-export default function App() {
-  const [url, setUrl] = useState("");
+function App() {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [stats, setStats] = useState(null);
-  const [player, setPlayer] = useState("");
-  const [showPaste, setShowPaste] = useState(false);
-  const [raw, setRaw] = useState("");
 
-  const buildFromText = (text, name = "") => {
-    const ms = parseLog(text);
-    if (ms.length < 2) {
-      setError("Couldn't find match rows on that page. Double-check it's a public match log link.");
-      return false;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tid = params.get("teamId");
+    if (tid) {
+      const player = ROSTER.find((p) => p.teamId === tid) || { name: "", teamId: tid };
+      openPlayer(player, false);
     }
-    setError("");
-    setPlayer(name);
-    setStats(computeStats(ms));
-    return true;
-  };
+  }, []);
 
-  const handleFetch = async () => {
-    if (!url.trim()) return;
-    setLoading(true);
+  const openPlayer = async (player, pushUrl = true) => {
+    setSelected(player);
+    setStats(null);
     setError("");
+    setLoading(true);
+    if (pushUrl) {
+      const u = new URL(window.location);
+      u.searchParams.set("teamId", player.teamId);
+      window.history.pushState({}, "", u);
+    }
     try {
-      const r = await fetch(`/api/fetch-log?url=${encodeURIComponent(url.trim())}`);
+      const r = await fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(player.teamId))}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Fetch failed");
-      const { text, name } = htmlToRows(data.html);
-      buildFromText(text, name);
+      const ms = parseLog(htmlToRows(data.html));
+      if (ms.length < 2) throw new Error("No match history found for this player yet.");
+      setStats(computeStats(ms));
     } catch (e) {
-      setError(e.message || "Couldn't load that link. Try the paste option below.");
+      setError(e.message || "Couldn't load this player's matches.");
     } finally {
       setLoading(false);
     }
   };
 
+  const goHome = () => {
+    setSelected(null);
+    setStats(null);
+    setError("");
+    const u = new URL(window.location);
+    u.searchParams.delete("teamId");
+    window.history.pushState({}, "", u);
+  };
+
+  const filtered = ROSTER.filter((p) =>
+    p.name.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: C.court, fontFamily: "system-ui, -apple-system, sans-serif", color: C.line }}>
       <div style={{ height: 6, background: `repeating-linear-gradient(90deg, ${C.line} 0 40px, transparent 40px 80px)`, opacity: 0.25 }} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px 64px" }}>
-        <header style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.ball, position: "relative", overflow: "hidden", boxShadow: "inset -3px -3px 0 rgba(0,0,0,0.2)" }}>
-              <div style={{ position: "absolute", inset: 0, borderTop: `2.5px solid ${C.court}`, borderRadius: "50%", transform: "rotate(-30deg) translateY(6px)" }} />
-            </div>
+        <header style={{ marginBottom: 28, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={goHome}>
+          <Logo />
+          <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Rally Report</h1>
+            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder \u00b7 scouting reports</div>
           </div>
-          <p style={{ color: C.mute, fontSize: 15, marginTop: 8, maxWidth: 520 }}>
-            Paste your TennisRungs match log link. Get your full scouting report — record, rivalries, clutch stats, and what to work on.
-          </p>
         </header>
 
-        {!stats && (
-          <div style={{ background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, padding: 20 }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleFetch()}
-                placeholder="https://app.tennisrungs.com/Public/PlayerMatches?teamId=..."
-                style={{ flex: "1 1 320px", boxSizing: "border-box", background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 4, color: C.line, padding: "12px 14px", fontSize: 15 }}
-              />
-              <button
-                onClick={handleFetch}
-                disabled={loading || !url.trim()}
-                style={{ background: C.ball, color: C.clay, border: "none", borderRadius: 4, padding: "12px 24px", fontSize: 15, fontWeight: 700, cursor: loading || !url.trim() ? "not-allowed" : "pointer", opacity: loading || !url.trim() ? 0.6 : 1 }}
-              >
-                {loading ? "Reading match log..." : "Build my report"}
-              </button>
+        {!selected && (
+          <>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search players..."
+              style={{ width: "100%", boxSizing: "border-box", background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 4, color: C.line, padding: "12px 14px", fontSize: 15, marginBottom: 16 }}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+              {filtered.map((p) => (
+                <button
+                  key={p.teamId}
+                  onClick={() => openPlayer(p)}
+                  style={{ textAlign: "left", background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, padding: "14px 16px", color: C.line, fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.ball)}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(245,242,232,0.15)")}
+                >
+                  {p.name}
+                  <span style={{ color: C.ball, fontSize: 18 }}>\u203a</span>
+                </button>
+              ))}
             </div>
+            {filtered.length === 0 && (
+              <div style={{ color: C.mute, textAlign: "center", padding: 40 }}>No players match "{search}".</div>
+            )}
+            <div style={{ marginTop: 24, color: C.mute, fontSize: 13, textAlign: "center" }}>
+              {ROSTER.length} players \u00b7 click any name for their full scouting report
+            </div>
+          </>
+        )}
+
+        {selected && (
+          <>
+            <button
+              onClick={goHome}
+              style={{ background: "none", border: `1px solid ${C.mute}`, color: C.line, borderRadius: 4, padding: "8px 16px", fontSize: 14, cursor: "pointer", marginBottom: 20 }}
+            >
+              \u2039 All players
+            </button>
+
+            {loading && (
+              <div style={{ textAlign: "center", padding: 60, color: C.mute, fontSize: 15 }}>
+                Loading {selected.name}'s match log...
+              </div>
+            )}
 
             {error && (
-              <div style={{ marginTop: 14, padding: 12, background: "rgba(232,96,76,0.15)", border: `1px solid ${C.red}`, borderRadius: 4, fontSize: 14 }}>
+              <div style={{ padding: 16, background: "rgba(232,96,76,0.15)", border: `1px solid ${C.red}`, borderRadius: 4, fontSize: 14 }}>
                 {error}
               </div>
             )}
 
-            <button
-              onClick={() => setShowPaste(!showPaste)}
-              style={{ marginTop: 14, background: "none", border: "none", color: C.mute, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: 0 }}
-            >
-              {showPaste ? "Hide paste option" : "Link not working? Paste your match log instead"}
-            </button>
-
-            {showPaste && (
-              <div style={{ marginTop: 12 }}>
-                <textarea
-                  value={raw}
-                  onChange={(e) => setRaw(e.target.value)}
-                  placeholder={"Open your match log page, select all, copy, paste here.\n\n6/7/2026  #3 Jane Doe  L  3-6,6-4, (10-7)\n6/5/2026  #7 John Smith  W  6-3,6-1"}
-                  style={{ width: "100%", boxSizing: "border-box", height: 160, background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 4, color: C.line, padding: 12, fontSize: 13, fontFamily: "ui-monospace, monospace", resize: "vertical" }}
-                />
-                <button
-                  onClick={() => buildFromText(raw)}
-                  disabled={!raw.trim()}
-                  style={{ marginTop: 10, background: "none", border: `1px solid ${C.ball}`, color: C.ball, borderRadius: 4, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: raw.trim() ? "pointer" : "not-allowed", opacity: raw.trim() ? 1 : 0.5 }}
-                >
-                  Build from pasted log
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {stats && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <Scoreboard s={stats} name={player} />
-            </div>
-
-            <Card span><FormStrip ms={stats.ms} /></Card>
-
-            <Card>
-              <Label>Streaks</Label>
-              <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-                <Big v={stats.bestW} sub="longest win streak" color={C.ball} />
-                <Big v={stats.bestL} sub="longest skid" color={C.red} />
-                <Big v={`${stats.curStreak.win ? "W" : "L"}${stats.curStreak.len}`} sub="current streak" color={stats.curStreak.win ? C.ball : C.red} />
-              </div>
-            </Card>
-
-            <Card>
-              <Label>Clutch</Label>
-              <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-                <Big v={`${stats.stb.w}-${stats.stb.l}`} sub="deciding super tiebreaks" color={stats.stb.w >= stats.stb.l ? C.ball : C.red} />
-                <Big v={stats.tbSets} sub="sets to 7-6" />
-                <Big v={stats.bagelSets} sub="6-0 sets" />
-              </div>
-            </Card>
-
-            <Card span><YearBars byYear={stats.byYear} /></Card>
-            <Card span><H2H h2h={stats.h2h} /></Card>
-            <Card span><Insights s={stats} /></Card>
-
-            <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "center" }}>
-              <button
-                onClick={() => { setStats(null); setUrl(""); setRaw(""); setPlayer(""); }}
-                style={{ background: "none", border: `1px solid ${C.mute}`, color: C.line, borderRadius: 4, padding: "10px 22px", fontSize: 14, cursor: "pointer" }}
-              >
-                Analyze another player
-              </button>
-            </div>
-          </div>
+            {stats && <Report stats={stats} name={selected.name} />}
+          </>
         )}
       </div>
     </div>
   );
 }
-import { createRoot } from "react-dom/client";
+
 createRoot(document.getElementById("root")).render(<App />);
