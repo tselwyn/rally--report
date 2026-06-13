@@ -226,15 +226,15 @@ function Scoreboard({ s, name }) {
     <div style={{ background: C.clay, border: `2px solid ${C.line}`, borderRadius: 4, padding: "28px 24px", textAlign: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: "50%", width: 2, height: "100%", background: "rgba(245,242,232,0.12)" }} />
       <div style={{ fontSize: 12, letterSpacing: 4, color: C.mute, textTransform: "uppercase", fontFamily: "ui-monospace, monospace" }}>
-        {name ? `${name} \u2014 Career Record` : "Career Record"}
+        {name ? `${name} — Career Record` : "Career Record"}
       </div>
       <div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: 18, marginTop: 8 }}>
         <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "clamp(52px, 12vw, 88px)", fontWeight: 700, color: C.ball, lineHeight: 1 }}>{s.wins}</span>
-        <span style={{ fontSize: 28, color: C.mute }}>\u2013</span>
+        <span style={{ fontSize: 28, color: C.mute }}>–</span>
         <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "clamp(52px, 12vw, 88px)", fontWeight: 700, color: C.line, lineHeight: 1 }}>{s.losses}</span>
       </div>
       <div style={{ marginTop: 10, fontSize: 14, color: C.mute, fontFamily: "ui-monospace, monospace" }}>
-        {s.winPct.toFixed(1)}% \u00b7 {s.total} matches \u00b7 {s.oppCount} opponents \u00b7 {fmtD(s.firstDate)} \u2192 {fmtD(s.lastDate)}
+        {s.winPct.toFixed(1)}% · {s.total} matches · {s.oppCount} opponents · {fmtD(s.firstDate)} → {fmtD(s.lastDate)}
       </div>
     </div>
   );
@@ -316,7 +316,7 @@ function Insights({ s }) {
   const rival = [...h2hArr].sort((a, b) => b.total - a.total)[0];
   if (rival && rival.total >= 4)
     items.push(
-      `Biggest rivalry: ${rival.opp} \u2014 ${rival.total} matches, ${rival.w}-${rival.l}. ${
+      `Biggest rivalry: ${rival.opp} — ${rival.total} matches, ${rival.w}-${rival.l}. ${
         Math.abs(rival.w - rival.l) <= 2
           ? "Dead even. This one's personal."
           : rival.w > rival.l
@@ -341,7 +341,7 @@ function Insights({ s }) {
   if (s.recent.total >= 8) {
     const rp = pct(s.recent.w, s.recent.l);
     items.push(
-      `Last 12 months: ${s.recent.w}-${s.recent.l} (${rp}%) \u2014 ${
+      `Last 12 months: ${s.recent.w}-${s.recent.l} (${rp}%) — ${
         rp > s.winPct + 3
           ? "trending up, playing their best tennis right now."
           : rp < s.winPct - 3
@@ -356,7 +356,7 @@ function Insights({ s }) {
       <Label>Scouting notes</Label>
       {items.map((t, i) => (
         <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", fontSize: 14, lineHeight: 1.5, color: C.line, borderBottom: i < items.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none" }}>
-          <span style={{ color: C.ball, flexShrink: 0 }}>\u203a</span>
+          <span style={{ color: C.ball, flexShrink: 0 }}>›</span>
           <span>{t}</span>
         </div>
       ))}
@@ -456,7 +456,7 @@ function App() {
           <Logo />
           <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Rally Report</h1>
-            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder \u00b7 scouting reports</div>
+            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder · scouting reports</div>
           </div>
         </header>
 
@@ -478,7 +478,7 @@ function App() {
                   onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(245,242,232,0.15)")}
                 >
                   {p.name}
-                  <span style={{ color: C.ball, fontSize: 18 }}>\u203a</span>
+                  <span style={{ color: C.ball, fontSize: 18 }}>›</span>
                 </button>
               ))}
             </div>
@@ -486,7 +486,7 @@ function App() {
               <div style={{ color: C.mute, textAlign: "center", padding: 40 }}>No players match "{search}".</div>
             )}
             <div style={{ marginTop: 24, color: C.mute, fontSize: 13, textAlign: "center" }}>
-              {ROSTER.length} players \u00b7 click any name for their full scouting report
+              {ROSTER.length} players · click any name for their full scouting report
             </div>
           </>
         )}
@@ -497,7 +497,7 @@ function App() {
               onClick={goHome}
               style={{ background: "none", border: `1px solid ${C.mute}`, color: C.line, borderRadius: 4, padding: "8px 16px", fontSize: 14, cursor: "pointer", marginBottom: 20 }}
             >
-              \u2039 All players
+              ‹ All players
             </button>
 
             {loading && (
