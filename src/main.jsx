@@ -364,32 +364,133 @@ function Insights({ s }) {
   );
 }
 
+function MatchLog({ ms }) {
+  const [oppFilter, setOppFilter] = useState(null);
+  // newest first
+  const ordered = [...ms].reverse();
+  const shown = oppFilter ? ordered.filter((m) => m.opp === oppFilter) : ordered;
+
+  // record vs the filtered opponent
+  let filtRecord = null;
+  if (oppFilter) {
+    const w = shown.filter((m) => m.win).length;
+    filtRecord = `${w}-${shown.length - w}`;
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <Label>{oppFilter ? `vs ${oppFilter}` : `All matches (${ordered.length})`}</Label>
+        {oppFilter && (
+          <button
+            onClick={() => setOppFilter(null)}
+            style={{ background: "none", border: `1px solid ${C.mute}`, color: C.line, borderRadius: 4, padding: "4px 12px", fontSize: 12, cursor: "pointer" }}
+          >
+            {filtRecord} · clear filter ✕
+          </button>
+        )}
+      </div>
+      {!oppFilter && (
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          Tip: tap any opponent's name to see only those matches.
+        </div>
+      )}
+      <div>
+        {shown.map((m, i) => (
+          <div
+            key={i}
+            style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid rgba(245,242,232,0.08)" }}
+          >
+            <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: C.mute, width: 76, flexShrink: 0 }}>
+              {fmtD(m.date)}
+            </div>
+            <div
+              style={{
+                width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "ui-monospace, monospace", fontSize: 12, fontWeight: 700,
+                background: m.win ? C.ball : "transparent",
+                border: `2px solid ${m.win ? C.ball : C.red}`,
+                color: m.win ? C.clay : C.red,
+              }}
+            >
+              {m.win ? "W" : "L"}
+            </div>
+            <button
+              onClick={() => setOppFilter(m.opp === oppFilter ? null : m.opp)}
+              style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: C.line, fontSize: 14, cursor: "pointer", padding: 0, textDecoration: "underline", textDecorationColor: "rgba(245,242,232,0.25)" }}
+            >
+              {m.opp}
+            </button>
+            <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 13, color: C.mute, textAlign: "right", flexShrink: 0 }}>
+              {m.score}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ view, setView }) {
+  const opt = (key, label) => (
+    <button
+      onClick={() => setView(key)}
+      style={{
+        background: view === key ? C.ball : "transparent",
+        color: view === key ? C.clay : C.line,
+        border: `1px solid ${view === key ? C.ball : "rgba(245,242,232,0.25)"}`,
+        borderRadius: 4, padding: "8px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {opt("summary", "Summary")}
+      {opt("log", "Match Log")}
+    </div>
+  );
+}
+
 function Report({ stats, name }) {
+  const [view, setView] = useState("summary");
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
       <div style={{ gridColumn: "1 / -1" }}>
         <Scoreboard s={stats} name={name} />
       </div>
-      <Card span><FormStrip ms={stats.ms} /></Card>
-      <Card>
-        <Label>Streaks</Label>
-        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-          <Big v={stats.bestW} sub="longest win streak" color={C.ball} />
-          <Big v={stats.bestL} sub="longest skid" color={C.red} />
-          <Big v={`${stats.curStreak.win ? "W" : "L"}${stats.curStreak.len}`} sub="current streak" color={stats.curStreak.win ? C.ball : C.red} />
-        </div>
-      </Card>
-      <Card>
-        <Label>Clutch</Label>
-        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-          <Big v={`${stats.stb.w}-${stats.stb.l}`} sub="deciding super tiebreaks" color={stats.stb.w >= stats.stb.l ? C.ball : C.red} />
-          <Big v={stats.tbSets} sub="sets to 7-6" />
-          <Big v={stats.bagelSets} sub="6-0 sets" />
-        </div>
-      </Card>
-      <Card span><YearBars byYear={stats.byYear} /></Card>
-      <Card span><H2H h2h={stats.h2h} /></Card>
-      <Card span><Insights s={stats} /></Card>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <Toggle view={view} setView={setView} />
+      </div>
+
+      {view === "summary" ? (
+        <>
+          <Card span><FormStrip ms={stats.ms} /></Card>
+          <Card>
+            <Label>Streaks</Label>
+            <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+              <Big v={stats.bestW} sub="longest win streak" color={C.ball} />
+              <Big v={stats.bestL} sub="longest skid" color={C.red} />
+              <Big v={`${stats.curStreak.win ? "W" : "L"}${stats.curStreak.len}`} sub="current streak" color={stats.curStreak.win ? C.ball : C.red} />
+            </div>
+          </Card>
+          <Card>
+            <Label>Clutch</Label>
+            <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+              <Big v={`${stats.stb.w}-${stats.stb.l}`} sub="deciding super tiebreaks" color={stats.stb.w >= stats.stb.l ? C.ball : C.red} />
+              <Big v={stats.tbSets} sub="sets to 7-6" />
+              <Big v={stats.bagelSets} sub="6-0 sets" />
+            </div>
+          </Card>
+          <Card span><YearBars byYear={stats.byYear} /></Card>
+          <Card span><H2H h2h={stats.h2h} /></Card>
+          <Card span><Insights s={stats} /></Card>
+        </>
+      ) : (
+        <Card span><MatchLog ms={stats.ms} /></Card>
+      )}
     </div>
   );
 }
