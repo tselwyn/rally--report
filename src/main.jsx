@@ -58,6 +58,40 @@ const ROSTER = [
 const logUrl = (teamId) =>
   `https://app.tennisrungs.com/Public/PlayerMatches?teamId=${teamId}`;
 
+const RANKINGS_URL =
+  "https://app.tennisrungs.com/fxbg-tennis-club/tennis-ladders/fxbg-singles-tennis/131837707";
+
+// Parse the ladder rankings page into rows matching TennisRungs columns.
+function parseRankings(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const out = [];
+  const rows = [...doc.querySelectorAll("table tr")];
+  for (const tr of rows) {
+    const cells = [...tr.querySelectorAll("td")];
+    if (cells.length < 6) continue;
+    const rankRaw = cells[0].textContent.replace(/\s+/g, " ").trim();
+    if (!/^#?\d+$/.test(rankRaw)) continue; // skip header / non-data rows
+    const link = cells[1].querySelector("a");
+    const teamIdMatch = link ? link.getAttribute("href").match(/teamId=(\d+)/) : null;
+    const challengeEl = cells[6];
+    const challengeLink = challengeEl ? challengeEl.querySelector("a") : null;
+    const challenge = challengeLink
+      ? (challengeLink.getAttribute("title") || challengeLink.textContent).replace(/\s+/g, " ").trim()
+      : "";
+    out.push({
+      rank: rankRaw.replace("#", ""),
+      name: cells[1].textContent.replace(/\s+/g, " ").trim(),
+      teamId: teamIdMatch ? teamIdMatch[1] : null,
+      wins: cells[2].textContent.trim(),
+      losses: cells[3].textContent.trim(),
+      streak: cells[4].textContent.trim(),
+      movement: cells[5].textContent.trim(),
+      challenge,
+    });
+  }
+  return out;
+}
+
 // ---------- CONTACTS ----------
 // When Dad publishes the sheet (File > Share > Publish to web > CSV), paste that
 // URL here and the Contact tab reads live from it. Until then, the bundled
@@ -623,6 +657,87 @@ function Report({ stats, name }) {
   );
 }
 
+// ---------- RANKINGS VIEW ----------
+function MovementArrow({ m }) {
+  const v = (m || "").toLowerCase();
+  if (v.includes("up")) return <span style={{ color: C.ball }} title="Up">▲</span>;
+  if (v.includes("down")) return <span style={{ color: C.red }} title="Down">▼</span>;
+  return <span style={{ color: C.mute }} title="Neutral">–</span>;
+}
+
+function Rankings({ onPlayer }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/fetch-log?url=${encodeURIComponent(RANKINGS_URL)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (!data.html) throw new Error(data.error || "Couldn't load rankings");
+        const parsed = parseRankings(data.html);
+        if (!parsed.length) throw new Error("No rankings found.");
+        setRows(parsed);
+      })
+      .catch((e) => !cancelled && setError(e.message || "Couldn't load rankings."));
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error)
+    return <div style={{ padding: 16, background: "rgba(232,96,76,0.15)", border: `1px solid ${C.red}`, borderRadius: 4, fontSize: 14 }}>{error}</div>;
+  if (!rows)
+    return <div style={{ textAlign: "center", padding: 60, color: C.mute, fontSize: 15 }}>Loading ladder rankings...</div>;
+
+  const cell = { padding: "10px 8px", fontSize: 13, fontFamily: "ui-monospace, monospace" };
+  const head = { ...cell, color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", textAlign: "left", borderBottom: "1px solid rgba(245,242,232,0.15)" };
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+        <thead>
+          <tr>
+            <th style={{ ...head, width: 44 }}>Rank</th>
+            <th style={head}>Player</th>
+            <th style={{ ...head, textAlign: "center" }}>W</th>
+            <th style={{ ...head, textAlign: "center" }}>L</th>
+            <th style={{ ...head, textAlign: "center" }}>Streak</th>
+            <th style={{ ...head, textAlign: "center" }}>Move</th>
+            <th style={head}>Challenge</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.rank} style={{ borderBottom: "1px solid rgba(245,242,232,0.08)" }}>
+              <td style={{ ...cell, color: C.ball, fontWeight: 700 }}>#{r.rank}</td>
+              <td style={cell}>
+                {r.teamId ? (
+                  <button
+                    onClick={() => onPlayer({ name: r.name, teamId: r.teamId })}
+                    style={{ background: "none", border: "none", color: C.line, fontSize: 14, fontWeight: 600, cursor: "pointer", padding: 0, textAlign: "left", textDecoration: "underline", textDecorationColor: "rgba(245,242,232,0.25)" }}
+                  >
+                    {r.name}
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{r.name}</span>
+                )}
+              </td>
+              <td style={{ ...cell, textAlign: "center", color: C.ball }}>{r.wins}</td>
+              <td style={{ ...cell, textAlign: "center", color: C.mute }}>{r.losses}</td>
+              <td style={{ ...cell, textAlign: "center", color: (r.streak || "").startsWith("W") ? C.ball : (r.streak || "").startsWith("L") ? C.red : C.mute }}>{r.streak}</td>
+              <td style={{ ...cell, textAlign: "center" }}><MovementArrow m={r.movement} /></td>
+              <td style={{ ...cell, fontSize: 12, color: C.mute }}>{r.challenge}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 16, color: C.mute, fontSize: 13, textAlign: "center" }}>
+        {rows.length} players · ladder record · tap a name for their full report
+      </div>
+    </div>
+  );
+}
+
 // ---------- CONTACTS VIEW ----------
 function Contacts() {
   const [contacts, setContacts] = useState(CONTACTS_FALLBACK);
@@ -767,7 +882,7 @@ function App() {
 
         {/* TOP NAV */}
         <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1px solid rgba(245,242,232,0.15)" }}>
-          {[["players", "Players"], ["contacts", "Contacts"]].map(([k, label]) => (
+          {[["players", "Players"], ["rankings", "Rankings"], ["contacts", "Contacts"]].map(([k, label]) => (
             <button
               key={k}
               onClick={() => { setTab(k); if (k === "players") goHome(); }}
@@ -783,6 +898,12 @@ function App() {
             </button>
           ))}
         </div>
+
+        {tab === "rankings" && (
+          <Rankings
+            onPlayer={(p) => { setTab("players"); openPlayer(p); }}
+          />
+        )}
 
         {tab === "contacts" && <Contacts />}
 
