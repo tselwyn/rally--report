@@ -58,6 +58,134 @@ const ROSTER = [
 const logUrl = (teamId) =>
   `https://app.tennisrungs.com/Public/PlayerMatches?teamId=${teamId}`;
 
+// ---------- CONTACTS ----------
+// When Dad publishes the sheet (File > Share > Publish to web > CSV), paste that
+// URL here and the Contact tab reads live from it. Until then, the bundled
+// snapshot below is used as a fallback so the tab still works.
+const CONTACTS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRiN_IbCQVAcyQCQ1FsQ2A8JPaxwlQ-vT5lZ7pYqIKC5696kuBFlbjXH5ca7a8IZwHW736c0oBxC1SG/pub?gid=0&single=true&output=csv";
+
+// Snapshot of current (active + temp-drop) players. Fallback only.
+const CONTACTS_FALLBACK = [
+  { name: "Sara Abebe", email: "sarabbblock@gmail.com", phone: "737-932-0349", rating: "3.0" },
+  { name: "Kay Adjei", email: "djanadwo@gmail.com", phone: "703-347-5498", rating: "3.5" },
+  { name: "Luis Aragon", email: "luis@luisaragon.com", phone: "703-203-5902", rating: "4.0" },
+  { name: "Felix Asamoah-Darko", email: "adarko.felix@yahoo.com", phone: "917-374-9089", rating: "3.5" },
+  { name: "Cristian Aviles", email: "cristian@verospaint.com", phone: "301-272-7662", rating: "3.0" },
+  { name: "Omari Bailey", email: "omarijbailey@gmail.com", phone: "540-538-9746", rating: "3.0" },
+  { name: "Monica Borobia", email: "monicaborobia@gmail.com", phone: "516-693-8095", rating: "4.5" },
+  { name: "Dave Bryant", email: "dpbryantjr@gmail.com", phone: "540-220-3187", rating: "3.5" },
+  { name: "Moe Cornejo", email: "moec810@netscape.net", phone: "540-308-1153", rating: "3.5" },
+  { name: "Lorenzo Cruz", email: "cruz.lorenzo10@gmail.com", phone: "240-383-5774", rating: "4.0" },
+  { name: "Jake Dodges", email: "jake.dodges2@gmail.com", phone: "240-298-7749", rating: "3.5" },
+  { name: "Gustavo Elias", email: "gustavo.a.elias@gmail.com", phone: "301-848-9102", rating: "3.5" },
+  { name: "Jahrome Fletcher", email: "jahromefletcher@gmail.com", phone: "540-368-4464", rating: "3.5" },
+  { name: "Matt Freitag", email: "Laddiefreitag@gmail.com", phone: "973-902-8070", rating: "3.0" },
+  { name: "Max Freitag", email: "maxfry2003@gmail.com", phone: "607-427-8003", rating: "4.0" },
+  { name: "Adrian Gacu", email: "artrusseladrian@gmail.com", phone: "240-222-2116", rating: "3.0" },
+  { name: "Frank Graves", email: "fgraves77@gmail.com", phone: "757-618-9565", rating: "4.0" },
+  { name: "Curtis Harris", email: "CHarrisLLL@aol.com", phone: "703-346-8767", rating: "4.0" },
+  { name: "Brian Houk", email: "bhouk277@gmail.com", phone: "540-834-8154", rating: "3.5" },
+  { name: "Deven Jani", email: "devenjani14@gmail.com", phone: "540-848-4328", rating: "4.0" },
+  { name: "Cameron Jennings", email: "cameronjennings4040@gmail.com", phone: "540-848-2360", rating: "4.0" },
+  { name: "Charles Jennings", email: "ccjfly13@gmail.com", phone: "540-455-4133", rating: "3.0" },
+  { name: "Freedman Kim", email: "okfreedman@gmail.com", phone: "434-907-9818", rating: "3.5" },
+  { name: "Chris Mallory", email: "cmallory370@gmail.com", phone: "540-322-9351", rating: "3.5" },
+  { name: "Hugo Navia", email: "naviahugo@hotmail.com", phone: "202-445-5149", rating: "4.0" },
+  { name: "Nathan Nguyen", email: "nguyen.nathan2602@gmail.com", phone: "469-222-9484", rating: "" },
+  { name: "Bryan Ordonez", email: "ordonez.bryan777@gmail.com", phone: "540-938-0467", rating: "" },
+  { name: "Jose Ordonez", email: "Oramon777@hotmail.com", phone: "540-259-2337", rating: "3.5" },
+  { name: "Derrick Owusu-Ababio", email: "doababio@gmail.com", phone: "240-898-6207", rating: "3.5" },
+  { name: "Sean Park", email: "sangil43@gmail.com", phone: "540-846-7002", rating: "3.0" },
+  { name: "Patrick Phan", email: "phuongdkphan@gmail.com", phone: "703-459-8047", rating: "3.5" },
+  { name: "Joel Pittman", email: "joelpittman@comcast.net", phone: "540-408-2278", rating: "3.5" },
+  { name: "Dusten Rees", email: "Dus10rees@gmail.com", phone: "540-220-3588", rating: "3.5" },
+  { name: "Nico Rublein", email: "Usmcnicorublein@gmail.com", phone: "540-834-8868", rating: "3.0" },
+  { name: "Dylan Schwarzmann", email: "d_schwarzmann2311@aol.com", phone: "540-422-3803", rating: "4.0" },
+  { name: "Owen Seely", email: "owendseely@gmail.com", phone: "540-538-3698", rating: "4.0" },
+  { name: "Matt Selwyn", email: "mselwyn20@gmail.com", phone: "540-498-0799", rating: "4.0" },
+  { name: "Tyler Selwyn", email: "tylerselwyn427@gmail.com", phone: "540-809-7867", rating: "4.0" },
+  { name: "Gregg Sprow", email: "sprow@cox.net", phone: "540-845-4436", rating: "4.0" },
+  { name: "Rameez Syed", email: "rameez500@gmail.com", phone: "413-309-5011", rating: "4.0" },
+  { name: "Aboudi Tayara", email: "abouditayara556@gmail.com", phone: "540-282-0215", rating: "" },
+  { name: "Thad Thompson", email: "thaddeus94t@gmail.com", phone: "540-903-2557", rating: "3.5" },
+  { name: "Jeff Trexel", email: "jefftrexel@gmail.com", phone: "703-282-5706", rating: "3.0" },
+  { name: "Sam Valasko", email: "svalasko@gmail.com", phone: "540-760-8807", rating: "3.5" },
+  { name: "Adam Walters", email: "adamwalters2006@gmail.com", phone: "757-332-5265", rating: "3.5" },
+  { name: "Mark Willis", email: "rubbertramp@hotmail.com", phone: "540-848-5348", rating: "4.5" },
+  { name: "Andy Wolfenbarger", email: "andywolfenbarger@gmail.com", phone: "571-722-7433", rating: "4.0" },
+  { name: "Ryan Wolfenbarger", email: "ryanpwolfenbarger@gmail.com", phone: "540-207-8219", rating: "3.5" },
+  { name: "Jae Yoo", email: "tkd1100@yahoo.com", phone: "703-999-1602", rating: "3.5" },
+].sort((a, b) => a.name.localeCompare(b.name));
+
+// Parse one CSV line, respecting quoted fields that may contain commas.
+function splitCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === "," && !inQ) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
+// Parse the published-CSV text into contact objects. Detects columns by header
+// name so it survives column reordering. Skips rows marked "Dropped".
+function parseContactsCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (!lines.length) return [];
+
+  const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const col = (...names) => {
+    for (const n of names) {
+      const idx = header.findIndex((h) => h.includes(n));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+  const iLast = col("last");
+  const iFirst = col("first");
+  const iName = col("name");
+  const iEmail = col("email", "e-mail");
+  const iPhone = col("phone", "cell", "mobile", "number");
+  const iRating = col("rating", "ntrp", "level");
+  const iNotes = col("note", "status", "drop");
+
+  const out = [];
+  for (let r = 1; r < lines.length; r++) {
+    const cells = splitCsvLine(lines[r]);
+    const get = (i) => (i >= 0 && i < cells.length ? cells[i] : "");
+
+    let name = "";
+    if (iFirst >= 0 || iLast >= 0) {
+      name = `${get(iFirst)} ${get(iLast)}`.trim();
+    } else if (iName >= 0) {
+      name = get(iName);
+    }
+    if (!name) continue;
+
+    const notes = get(iNotes).toLowerCase();
+    if (notes.includes("dropped")) continue;
+
+    out.push({
+      name,
+      email: get(iEmail),
+      phone: get(iPhone),
+      rating: get(iRating),
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // ---------- PARSING ----------
 const ROW_RE =
   /(\d{1,2}\/\d{1,2}\/\d{4})[\s|]*#?(\d+)?\s*([A-Za-zÀ-ÿ.'\- ]+?)[\s|]+(W|L)[\s|]+([\s\S]*?)(?=\d{1,2}\/\d{1,2}\/\d{4}|Copyright|$)/g;
@@ -495,8 +623,84 @@ function Report({ stats, name }) {
   );
 }
 
+// ---------- CONTACTS VIEW ----------
+function Contacts() {
+  const [contacts, setContacts] = useState(CONTACTS_FALLBACK);
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(!!CONTACTS_CSV_URL);
+
+  useEffect(() => {
+    if (!CONTACTS_CSV_URL) return;
+    let cancelled = false;
+    fetch(CONTACTS_CSV_URL)
+      .then((r) => {
+        if (!r.ok) throw new Error("fetch failed");
+        return r.text();
+      })
+      .then((t) => {
+        if (cancelled) return;
+        const parsed = parseContactsCsv(t);
+        if (parsed.length) setContacts(parsed);
+      })
+      .catch(() => {
+        // keep the bundled fallback list
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const filtered = contacts.filter((c) =>
+    c.name.toLowerCase().includes(q.toLowerCase())
+  );
+
+  return (
+    <>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search by name..."
+        style={{ width: "100%", boxSizing: "border-box", background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 4, color: C.line, padding: "12px 14px", fontSize: 15, marginBottom: 16 }}
+      />
+      <div style={{ background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, overflow: "hidden" }}>
+        {filtered.map((c, i) => (
+          <div
+            key={c.name}
+            style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderBottom: i < filtered.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none", flexWrap: "wrap" }}
+          >
+            <div style={{ flex: "1 1 160px", fontSize: 15, fontWeight: 600, color: C.line }}>
+              {c.name}
+              {c.rating && (
+                <span style={{ fontSize: 12, color: C.mute, fontWeight: 400, marginLeft: 8 }}>{c.rating}</span>
+              )}
+            </div>
+            {c.phone && (
+              <a href={`tel:${c.phone.replace(/[^0-9]/g, "")}`} style={{ flex: "0 0 auto", fontFamily: "ui-monospace, monospace", fontSize: 14, color: C.ball, textDecoration: "none" }}>
+                {c.phone}
+              </a>
+            )}
+            {c.email && (
+              <a href={`mailto:${c.email}`} style={{ flex: "1 1 200px", fontSize: 13, color: C.mute, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.email}
+              </a>
+            )}
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div style={{ color: C.mute, textAlign: "center", padding: 40 }}>No one matches "{q}".</div>
+        )}
+      </div>
+      <div style={{ marginTop: 16, color: C.mute, fontSize: 13, textAlign: "center" }}>
+        {loading ? "Loading latest from the sheet..." : `${contacts.length} players · tap a number to call, tap an email to message`}
+      </div>
+    </>
+  );
+}
+
 // ---------- APP ----------
 function App() {
+  const [tab, setTab] = useState("players"); // "players" | "contacts"
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -553,15 +757,36 @@ function App() {
     <div style={{ minHeight: "100vh", background: C.court, fontFamily: "system-ui, -apple-system, sans-serif", color: C.line }}>
       <div style={{ height: 6, background: `repeating-linear-gradient(90deg, ${C.line} 0 40px, transparent 40px 80px)`, opacity: 0.25 }} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px 64px" }}>
-        <header style={{ marginBottom: 28, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={goHome}>
+        <header style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => { setTab("players"); goHome(); }}>
           <Logo />
           <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Rally Report</h1>
-            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder · scouting reports</div>
+            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder</div>
           </div>
         </header>
 
-        {!selected && (
+        {/* TOP NAV */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1px solid rgba(245,242,232,0.15)" }}>
+          {[["players", "Players"], ["contacts", "Contacts"]].map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => { setTab(k); if (k === "players") goHome(); }}
+              style={{
+                background: "none", border: "none", padding: "10px 18px", cursor: "pointer",
+                fontSize: 15, fontWeight: 700,
+                color: tab === k ? C.ball : C.mute,
+                borderBottom: tab === k ? `2px solid ${C.ball}` : "2px solid transparent",
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "contacts" && <Contacts />}
+
+        {tab === "players" && !selected && (
           <>
             <input
               value={search}
@@ -592,7 +817,7 @@ function App() {
           </>
         )}
 
-        {selected && (
+        {tab === "players" && selected && (
           <>
             <button
               onClick={goHome}
