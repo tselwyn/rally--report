@@ -61,6 +61,14 @@ const logUrl = (teamId) =>
 const RANKINGS_URL =
   "https://app.tennisrungs.com/fxbg-tennis-club/tennis-ladders/fxbg-singles-tennis/131837707";
 
+// Join-request form delivery (Formspree) and ladder organizer info.
+const JOIN_FORM_ENDPOINT = "https://formspree.io/f/xaqzrpdz";
+const ORGANIZER = {
+  name: "Matt Selwyn",
+  email: "mselwyn20@gmail.com",
+  phone: "540-498-0799",
+};
+
 // Parse the ladder rankings page into rows matching TennisRungs columns.
 function parseRankings(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -657,6 +665,114 @@ function Report({ stats, name }) {
   );
 }
 
+// ---------- ORGANIZER + JOIN FORM ----------
+function OrganizerCard() {
+  const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState("");
+  const [form, setForm] = useState({ first: "", last: "", email: "", phone: "", rating: "", message: "" });
+
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const valid = form.first.trim() && form.last.trim() && form.email.trim() && form.phone.trim();
+
+  const submit = async () => {
+    if (!valid) { setErr("Please fill in your name, email, and cell number."); return; }
+    setSending(true);
+    setErr("");
+    try {
+      const res = await fetch(JOIN_FORM_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          "First name": form.first,
+          "Last name": form.last,
+          email: form.email,
+          "Cell": form.phone,
+          "USTA rating": form.rating || "Not sure / none",
+          "Message": form.message,
+          _subject: `Rally Report join request: ${form.first} ${form.last}`,
+        }),
+      });
+      if (!res.ok) throw new Error("Submission failed");
+      setDone(true);
+    } catch {
+      setErr("Couldn't send that. Please try again, or email Matt directly.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box", background: C.clay,
+    border: "1px solid rgba(245,242,232,0.2)", borderRadius: 4, color: C.line,
+    padding: "10px 12px", fontSize: 14, marginBottom: 8,
+  };
+
+  return (
+    <div style={{ background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, padding: 16, fontSize: 13, maxWidth: 280 }}>
+      <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontFamily: "ui-monospace, monospace", marginBottom: 6 }}>
+        Ladder Organizer
+      </div>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>{ORGANIZER.name}</div>
+      <a href={`mailto:${ORGANIZER.email}`} style={{ color: C.ball, textDecoration: "none", display: "block", marginTop: 2 }}>{ORGANIZER.email}</a>
+      <a href={`tel:${ORGANIZER.phone.replace(/[^0-9]/g, "")}`} style={{ color: C.line, textDecoration: "none", fontFamily: "ui-monospace, monospace", display: "block", marginTop: 2 }}>{ORGANIZER.phone}</a>
+
+      {!open && !done && (
+        <button
+          onClick={() => setOpen(true)}
+          style={{ marginTop: 12, width: "100%", background: C.ball, color: C.clay, border: "none", borderRadius: 4, padding: "10px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+        >
+          Interested in joining? Fill out this form
+        </button>
+      )}
+
+      {done && (
+        <div style={{ marginTop: 12, padding: 10, background: "rgba(216,245,41,0.12)", border: `1px solid ${C.ball}`, borderRadius: 4, color: C.line }}>
+          Thanks! Your info was sent to {ORGANIZER.name}. He'll be in touch.
+        </div>
+      )}
+
+      {open && !done && (
+        <div style={{ marginTop: 12 }}>
+          <input style={inputStyle} placeholder="First name *" value={form.first} onChange={set("first")} />
+          <input style={inputStyle} placeholder="Last name *" value={form.last} onChange={set("last")} />
+          <input style={inputStyle} type="email" placeholder="Email *" value={form.email} onChange={set("email")} />
+          <input style={inputStyle} placeholder="Cell number *" value={form.phone} onChange={set("phone")} />
+          <select style={{ ...inputStyle, appearance: "auto" }} value={form.rating} onChange={set("rating")}>
+            <option value="">USTA rating (optional)</option>
+            <option value="2.5">2.5</option>
+            <option value="3.0">3.0</option>
+            <option value="3.5">3.5</option>
+            <option value="4.0">4.0</option>
+            <option value="4.5">4.5</option>
+            <option value="5.0">5.0</option>
+            <option value="5.5+">5.5+</option>
+            <option value="Not sure">Not sure</option>
+          </select>
+          <textarea style={{ ...inputStyle, height: 64, resize: "vertical", fontFamily: "inherit" }} placeholder="Optional message" value={form.message} onChange={set("message")} />
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={submit}
+              disabled={sending}
+              style={{ flex: 1, background: C.ball, color: C.clay, border: "none", borderRadius: 4, padding: "10px 12px", fontSize: 13, fontWeight: 700, cursor: sending ? "not-allowed" : "pointer", opacity: sending ? 0.6 : 1 }}
+            >
+              {sending ? "Sending..." : "Send to organizer"}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              style={{ background: "none", border: `1px solid ${C.mute}`, color: C.line, borderRadius: 4, padding: "10px 12px", fontSize: 13, cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- RANKINGS VIEW ----------
 function MovementArrow({ m }) {
   const v = (m || "").toLowerCase();
@@ -872,13 +988,16 @@ function App() {
     <div style={{ minHeight: "100vh", background: C.court, fontFamily: "system-ui, -apple-system, sans-serif", color: C.line }}>
       <div style={{ height: 6, background: `repeating-linear-gradient(90deg, ${C.line} 0 40px, transparent 40px 80px)`, opacity: 0.25 }} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px 64px" }}>
-        <header style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => { setTab("players"); goHome(); }}>
-          <Logo />
-          <div>
-            <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Rally Report</h1>
-            <div style={{ color: C.mute, fontSize: 13 }}>FXBG Tennis Ladder</div>
-          </div>
-        </header>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+          <header style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => { setTab("players"); goHome(); }}>
+            <Logo />
+            <div>
+              <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Rally Report</h1>
+              <div style={{ color: C.mute, fontSize: 13 }}>FXBG Singles Ladder</div>
+            </div>
+          </header>
+          <OrganizerCard />
+        </div>
 
         {/* TOP NAV */}
         <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1px solid rgba(245,242,232,0.15)" }}>
