@@ -61,6 +61,29 @@ const logUrl = (teamId) =>
 const RANKINGS_URL =
   "https://app.tennisrungs.com/fxbg-tennis-club/tennis-ladders/fxbg-singles-tennis/131837707";
 
+const CHALLENGES_URL =
+  "https://app.tennisrungs.com/fxbg-tennis-club/tennis-ladders/fxbg-singles-tennis/challenges/131837707";
+
+// Parse the dedicated pending-challenges page (challenger vs opponent + date).
+function parseChallenges(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const out = [];
+  const rows = [...doc.querySelectorAll("table tr")];
+  for (const tr of rows) {
+    const cells = [...tr.querySelectorAll("td")].map((c) =>
+      c.textContent.replace(/\s+/g, " ").trim()
+    );
+    if (cells.length < 4) continue;
+    const challenger = cells[0];
+    const opponent = cells[2];
+    const date = cells[3];
+    // skip header / malformed rows
+    if (!/#/.test(challenger) || !/#/.test(opponent)) continue;
+    out.push({ challenger, opponent, date });
+  }
+  return out;
+}
+
 // Join-request form delivery (Formspree) and ladder organizer info.
 const JOIN_FORM_ENDPOINT = "https://formspree.io/f/xaqzrpdz";
 const ORGANIZER = {
@@ -784,6 +807,7 @@ function MovementArrow({ m }) {
 function Rankings({ onPlayer }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
+  const [challenges, setChallenges] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -797,6 +821,15 @@ function Rankings({ onPlayer }) {
         setRows(parsed);
       })
       .catch((e) => !cancelled && setError(e.message || "Couldn't load rankings."));
+
+    fetch(`/api/fetch-log?url=${encodeURIComponent(CHALLENGES_URL)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.html) return;
+        setChallenges(parseChallenges(data.html));
+      })
+      .catch(() => {});
+
     return () => { cancelled = true; };
   }, []);
 
@@ -810,7 +843,7 @@ function Rankings({ onPlayer }) {
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
         <thead>
           <tr>
             <th style={{ ...head, width: 44 }}>Rank</th>
@@ -819,7 +852,6 @@ function Rankings({ onPlayer }) {
             <th style={{ ...head, textAlign: "center" }}>L</th>
             <th style={{ ...head, textAlign: "center" }}>Streak</th>
             <th style={{ ...head, textAlign: "center" }}>Move</th>
-            <th style={head}>Challenge</th>
           </tr>
         </thead>
         <tbody>
@@ -842,7 +874,6 @@ function Rankings({ onPlayer }) {
               <td style={{ ...cell, textAlign: "center", color: C.mute }}>{r.losses}</td>
               <td style={{ ...cell, textAlign: "center", color: (r.streak || "").startsWith("W") ? C.ball : (r.streak || "").startsWith("L") ? C.red : C.mute }}>{r.streak}</td>
               <td style={{ ...cell, textAlign: "center" }}><MovementArrow m={r.movement} /></td>
-              <td style={{ ...cell, fontSize: 12, color: C.mute }}>{r.challenge}</td>
             </tr>
           ))}
         </tbody>
@@ -850,6 +881,27 @@ function Rankings({ onPlayer }) {
       <div style={{ marginTop: 16, color: C.mute, fontSize: 13, textAlign: "center" }}>
         {rows.length} players · ladder record · tap a name for their full report
       </div>
+
+      {challenges && challenges.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <Label>Pending Challenges ({challenges.length})</Label>
+          <div style={{ background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, overflow: "hidden" }}>
+            {challenges.map((c, i) => (
+              <div
+                key={i}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < challenges.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none", flexWrap: "wrap" }}
+              >
+                <div style={{ flex: "1 1 auto", fontSize: 14, color: C.line }}>
+                  <span style={{ fontWeight: 600 }}>{c.challenger}</span>
+                  <span style={{ color: C.mute, margin: "0 8px" }}>vs</span>
+                  <span style={{ fontWeight: 600 }}>{c.opponent}</span>
+                </div>
+                <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: C.mute, flexShrink: 0 }}>{c.date}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
