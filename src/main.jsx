@@ -1,8 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { inject } from "@vercel/analytics";
-
-inject();
 
 // ---------- ROSTER ----------
 const ROSTER = [
