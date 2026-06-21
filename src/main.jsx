@@ -1182,6 +1182,9 @@ function App() {
           </>
         )}
       </div>
+      <footer style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "28px 16px 20px", borderTop: `1px solid ${C.mute}22`, marginTop: 8 }}>
+        © Tyler Selwyn 2026
+      </footer>
     </div>
   );
 }
