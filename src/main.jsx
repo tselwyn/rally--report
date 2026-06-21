@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
-// ---------- ROSTER ----------
-const ROSTER = [
+// ---------- ROSTER (fallback only; live roster comes from the sheet) ----------
+const ROSTER_FALLBACK = [
   { name: "Aboudi Tayara", teamId: "166714797" },
   { name: "Adrian Gacu", teamId: "163102950" },
   { name: "Andy Wolfenbarger", teamId: "131924864" },
@@ -203,11 +203,16 @@ function splitCsvLine(line) {
   return out.map((c) => c.trim());
 }
 
-// Parse the published-CSV text into contact objects. Detects columns by header
-// name so it survives column reordering. Skips rows marked "Dropped".
-function parseContactsCsv(text) {
+// Parse the published-CSV text once into BOTH the contacts list and the
+// scouting roster. Columns are detected by header name so the sheet survives
+// reordering. Two different filters intentionally:
+//   - contacts: everyone except fully "Dropped" players (temp drops still show)
+//   - roster (scouting): ACTIVE players only — anyone whose notes contain "drop"
+//     (Temp Drop or Dropped) is left off, and players with no URL/teamId are
+//     skipped automatically (e.g. someone who hasn't played yet).
+function parseSheet(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-  if (!lines.length) return [];
+  if (!lines.length) return { contacts: [], roster: [] };
 
   const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
   const col = (...names) => {
@@ -224,31 +229,46 @@ function parseContactsCsv(text) {
   const iPhone = col("phone", "cell", "mobile", "number");
   const iRating = col("rating", "ntrp", "level");
   const iNotes = col("note", "status", "drop");
+  const iUrl = col("url", "tennisrungs", "link", "teamid", "scouting");
 
-  const out = [];
+  const extractTeamId = (raw) => {
+    if (!raw) return null;
+    let m = raw.match(/teamId=(\d+)/i);             // ...PlayerMatches?teamId=123
+    if (m) return m[1];
+    m = raw.trim().match(/\/(\d{5,})(?:[/?#]|$)/);   // .../profile/123
+    if (m) return m[1];
+    m = raw.trim().match(/^(\d{5,})$/);              // bare id pasted alone
+    return m ? m[1] : null;
+  };
+
+  const contacts = [];
+  const roster = [];
   for (let r = 1; r < lines.length; r++) {
     const cells = splitCsvLine(lines[r]);
     const get = (i) => (i >= 0 && i < cells.length ? cells[i] : "");
 
     let name = "";
-    if (iFirst >= 0 || iLast >= 0) {
-      name = `${get(iFirst)} ${get(iLast)}`.trim();
-    } else if (iName >= 0) {
-      name = get(iName);
-    }
+    if (iFirst >= 0 || iLast >= 0) name = `${get(iFirst)} ${get(iLast)}`.trim();
+    else if (iName >= 0) name = get(iName);
     if (!name) continue;
 
     const notes = get(iNotes).toLowerCase();
-    if (notes.includes("dropped")) continue;
+    const fullyDropped = notes.includes("dropped"); // contacts: hide only fully-dropped
+    const inactive = notes.includes("drop");        // scouting: hide temp + fully dropped
+    const teamId = extractTeamId(get(iUrl));
 
-    out.push({
-      name,
-      email: get(iEmail),
-      phone: get(iPhone),
-      rating: get(iRating),
-    });
+    if (teamId && !inactive) roster.push({ name, teamId });
+    if (!fullyDropped) {
+      contacts.push({
+        name,
+        email: get(iEmail),
+        phone: get(iPhone),
+        rating: get(iRating),
+      });
+    }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  return { contacts: contacts.sort(byName), roster: roster.sort(byName) };
 }
 
 // ---------- PARSING ----------
@@ -922,8 +942,8 @@ function Contacts() {
       })
       .then((t) => {
         if (cancelled) return;
-        const parsed = parseContactsCsv(t);
-        if (parsed.length) setContacts(parsed);
+        const parsed = parseSheet(t);
+        if (parsed.contacts.length) setContacts(parsed.contacts);
       })
       .catch(() => {
         // keep the bundled fallback list
@@ -990,14 +1010,29 @@ function App() {
   const [error, setError] = useState("");
   const [stats, setStats] = useState(null);
 
+  const [roster, setRoster] = useState(ROSTER_FALLBACK);
+
+  // Live scouting roster from Dad's published sheet — same source as Contacts.
+  // He edits the sheet, this updates on the next load. No code edits ever.
+  useEffect(() => {
+    if (!CONTACTS_CSV_URL) return;
+    fetch(CONTACTS_CSV_URL)
+      .then((r) => (r.ok ? r.text() : Promise.reject()))
+      .then((t) => {
+        const parsed = parseSheet(t);
+        if (parsed.roster.length) setRoster(parsed.roster);
+      })
+      .catch(() => {}); // keep the bundled fallback if the fetch fails
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tid = params.get("teamId");
     if (tid) {
-      const player = ROSTER.find((p) => p.teamId === tid) || { name: "", teamId: tid };
+      const player = roster.find((p) => p.teamId === tid) || { name: "", teamId: tid };
       openPlayer(player, false);
     }
-  }, []);
+  }, [roster]);
 
   const openPlayer = async (player, pushUrl = true) => {
     setSelected(player);
@@ -1032,7 +1067,7 @@ function App() {
     window.history.pushState({}, "", u);
   };
 
-  const filtered = ROSTER.filter((p) =>
+  const filtered = roster.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -1104,7 +1139,7 @@ function App() {
               <div style={{ color: C.mute, textAlign: "center", padding: 40 }}>No players match "{search}".</div>
             )}
             <div style={{ marginTop: 24, color: C.mute, fontSize: 13, textAlign: "center" }}>
-              {ROSTER.length} players · click any name for their full scouting report
+              {roster.length} players · click any name for their full scouting report
             </div>
           </>
         )}
