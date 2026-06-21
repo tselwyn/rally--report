@@ -211,8 +211,20 @@ function splitCsvLine(line) {
 //     (Temp Drop or Dropped) is left off, and players with no URL/teamId are
 //     skipped automatically (e.g. someone who hasn't played yet).
 function parseSheet(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-  if (!lines.length) return { contacts: [], roster: [] };
+  const allLines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (!allLines.length) return { contacts: [], roster: [] };
+
+  // The sheet may have summary/counter rows above the real header
+  // (e.g. "Active Players =,29,Temp Drops =,8"). Find the actual header row:
+  // the first line that contains recognizable column names.
+  const looksLikeHeader = (cells) => {
+    const low = cells.map((c) => c.toLowerCase());
+    const has = (n) => low.some((h) => h.includes(n));
+    return (has("last") || has("first") || has("name")) && (has("email") || has("phone"));
+  };
+  let headerIdx = allLines.findIndex((l) => looksLikeHeader(splitCsvLine(l)));
+  if (headerIdx === -1) headerIdx = 0; // fall back to first line if nothing matches
+  const lines = allLines.slice(headerIdx);
 
   const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
   const col = (...names) => {
