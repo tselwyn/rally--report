@@ -229,7 +229,7 @@ function parseSheet(text) {
   const iPhone = col("phone", "cell", "mobile", "number");
   const iRating = col("rating", "ntrp", "level");
   const iNotes = col("note", "status", "drop");
-  const iUrl = col("url", "tennisrungs", "link", "teamid", "scouting");
+  const iUrl = col("url", "tennisrungs", "link", "teamid", "scouting", "log");
 
   const extractTeamId = (raw) => {
     if (!raw) return null;
