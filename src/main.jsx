@@ -266,10 +266,11 @@ function parseSheet(text) {
 
     const notes = get(iNotes).toLowerCase();
     const fullyDropped = notes.includes("dropped"); // contacts: hide only fully-dropped
-    const inactive = notes.includes("drop");        // scouting: hide temp + fully dropped
     const teamId = extractTeamId(get(iUrl));
 
-    if (teamId && !inactive) roster.push({ name, teamId });
+    // Scouting roster: anyone with a URL/teamId, regardless of Temp Drop status.
+    // Players with no URL yet (Dad hasn't added it) are simply skipped here.
+    if (teamId) roster.push({ name, teamId });
     if (!fullyDropped) {
       contacts.push({
         name,
