@@ -1014,6 +1014,107 @@ function Contacts() {
   );
 }
 
+// ---------- MONTHLY LEADERBOARD ----------
+// Returns the previous COMPLETE calendar month as a [start, end) window.
+function lastFullMonth(now = new Date()) {
+  const end = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of this month (exclusive)
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1st of last month
+  const label = start.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return { start, end, label };
+}
+
+async function fetchPlayerMatches(teamId) {
+  try {
+    const r = await fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(teamId))}`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return parseLog(htmlToRows(data.html));
+  } catch {
+    return [];
+  }
+}
+
+// Fetch every rostered player's log in small batches (gentle on TennisRungs),
+// count wins + total matches inside the month window. Forfeits are included.
+async function buildLeaderboards(roster, range) {
+  const { start, end } = range;
+  const tally = [];
+  const batchSize = 6;
+  for (let i = 0; i < roster.length; i += batchSize) {
+    const batch = roster.slice(i, i + batchSize);
+    const settled = await Promise.all(
+      batch.map(async (p) => {
+        const ms = await fetchPlayerMatches(p.teamId);
+        const month = ms.filter((m) => m.date >= start && m.date < end);
+        return { name: p.name, wins: month.filter((m) => m.win).length, total: month.length };
+      })
+    );
+    tally.push(...settled);
+  }
+  const played = tally.filter((t) => t.total > 0);
+  const byWins = [...played].sort((a, b) => b.wins - a.wins || b.total - a.total).slice(0, 5);
+  const byMatches = [...played].sort((a, b) => b.total - a.total || b.wins - a.wins).slice(0, 5);
+  return { byWins, byMatches };
+}
+
+function Board({ title, rows, accent, metric }) {
+  return (
+    <div style={{ flex: 1, minWidth: 240, background: C.clay, border: `1px solid rgba(245,242,232,0.2)`, borderRadius: 8, padding: "16px 18px" }}>
+      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 12, color: C.line }}>{title}</div>
+      {rows.length === 0 ? (
+        <div style={{ color: C.mute, fontSize: 13 }}>No matches recorded.</div>
+      ) : (
+        rows.map((r, i) => (
+          <div
+            key={r.name}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid rgba(245,242,232,0.1)" }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <span style={{ width: 16, textAlign: "right", color: i === 0 ? accent : C.mute, fontWeight: i === 0 ? 800 : 600, fontSize: 13 }}>{i + 1}</span>
+              <span style={{ color: C.line, fontSize: 14, fontWeight: i === 0 ? 700 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+            </span>
+            <span style={{ color: accent, fontWeight: 800, fontSize: 15, flexShrink: 0, marginLeft: 10 }}>{metric(r)}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function LeaderBoards({ roster }) {
+  const [data, setData] = useState(null);
+  const { start, end, label } = lastFullMonth();
+  useEffect(() => {
+    if (!roster.length) return;
+    let cancelled = false;
+    buildLeaderboards(roster, { start, end }).then((d) => {
+      if (!cancelled) setData(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roster]);
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, marginBottom: 12, fontFamily: "ui-monospace, monospace" }}>
+        Leaderboard · {label}
+      </div>
+      {!data ? (
+        <div style={{ background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 8, padding: "22px 18px", color: C.mute, fontSize: 14, textAlign: "center" }}>
+          Crunching last month's results…
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <Board title="🏆 Most Wins" rows={data.byWins} accent={C.ball} metric={(r) => r.wins} />
+          <Board title="🔥 Most Matches" rows={data.byMatches} accent={C.red} metric={(r) => r.total} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- APP ----------
 function App() {
   const [tab, setTab] = useState("players"); // "players" | "contacts"
@@ -1128,6 +1229,7 @@ function App() {
 
         {tab === "players" && !selected && (
           <>
+            <LeaderBoards roster={roster} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
