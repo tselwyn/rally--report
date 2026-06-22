@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
-// ---------- ROSTER (fallback only; live roster comes from the sheet) - ---------
+// ---------- ROSTER (fallback only; live roster comes from the sheet) ----------
 const ROSTER_FALLBACK = [
   { name: "Aboudi Tayara", teamId: "166714797" },
   { name: "Adrian Gacu", teamId: "163102950" },
@@ -1014,14 +1014,28 @@ function Contacts() {
   );
 }
 
-// ---------- MONTHLY LEADERBOARD ----------
-// Returns the previous COMPLETE calendar month as a [start, end) window.
-function lastFullMonth(now = new Date()) {
-  const end = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of this month (exclusive)
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1st of last month
-  const label = start.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  return { start, end, label };
+// ---------- LEADERBOARD ----------
+// Time-window helpers — each returns a [start, end) range plus a label.
+function currentMonth(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return { start, end, label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
 }
+function lastFullMonth(now = new Date()) {
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return { start, end, label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
+}
+function yearToDate(now = new Date()) {
+  const start = new Date(now.getFullYear(), 0, 1);
+  const end = new Date(now.getFullYear() + 1, 0, 1);
+  return { start, end, label: `${now.getFullYear()} · Year to date` };
+}
+const PERIODS = [
+  { key: "month", title: "This Month", range: currentMonth },
+  { key: "last", title: "Last Month", range: lastFullMonth },
+  { key: "ytd", title: "Year to Date", range: yearToDate },
+];
 
 async function fetchPlayerMatches(teamId) {
   try {
@@ -1034,23 +1048,29 @@ async function fetchPlayerMatches(teamId) {
   }
 }
 
-// Fetch every rostered player's log in small batches (gentle on TennisRungs),
-// count wins + total matches inside the month window. Forfeits are included.
-async function buildLeaderboards(roster, range) {
-  const { start, end } = range;
-  const tally = [];
+// Fetch every rostered player's full log ONCE, in small batches (gentle on
+// TennisRungs). The three time windows are then computed client-side from this
+// cached data, so switching periods is instant and never re-fetches.
+async function fetchAllMatches(roster) {
+  const all = [];
   const batchSize = 6;
   for (let i = 0; i < roster.length; i += batchSize) {
     const batch = roster.slice(i, i + batchSize);
     const settled = await Promise.all(
-      batch.map(async (p) => {
-        const ms = await fetchPlayerMatches(p.teamId);
-        const month = ms.filter((m) => m.date >= start && m.date < end);
-        return { name: p.name, wins: month.filter((m) => m.win).length, total: month.length };
-      })
+      batch.map(async (p) => ({ name: p.name, matches: await fetchPlayerMatches(p.teamId) }))
     );
-    tally.push(...settled);
+    all.push(...settled);
   }
+  return all;
+}
+
+// Rank cached per-player matches inside a window. Forfeits are included.
+function rankWindow(all, range) {
+  const { start, end } = range;
+  const tally = all.map((p) => {
+    const w = p.matches.filter((m) => m.date >= start && m.date < end);
+    return { name: p.name, wins: w.filter((m) => m.win).length, total: w.length };
+  });
   const played = tally.filter((t) => t.total > 0);
   const byWins = [...played].sort((a, b) => b.wins - a.wins || b.total - a.total).slice(0, 5);
   const byMatches = [...played].sort((a, b) => b.total - a.total || b.wins - a.wins).slice(0, 5);
@@ -1082,13 +1102,14 @@ function Board({ title, rows, accent, metric }) {
 }
 
 function LeaderBoards({ roster }) {
-  const [data, setData] = useState(null);
-  const { start, end, label } = lastFullMonth();
+  const [all, setAll] = useState(null); // cached per-player matches (fetched once)
+  const [period, setPeriod] = useState("month"); // default: This Month
+
   useEffect(() => {
     if (!roster.length) return;
     let cancelled = false;
-    buildLeaderboards(roster, { start, end }).then((d) => {
-      if (!cancelled) setData(d);
+    fetchAllMatches(roster).then((d) => {
+      if (!cancelled) setAll(d);
     });
     return () => {
       cancelled = true;
@@ -1096,14 +1117,36 @@ function LeaderBoards({ roster }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roster]);
 
+  const sel = PERIODS.find((p) => p.key === period) || PERIODS[0];
+  const range = sel.range();
+  const data = all ? rankWindow(all, range) : null;
+
   return (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, marginBottom: 12, fontFamily: "ui-monospace, monospace" }}>
-        Leaderboard · {label}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, fontFamily: "ui-monospace, monospace" }}>
+          Leaderboard · {range.label}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              style={{
+                background: period === p.key ? C.ball : "transparent",
+                color: period === p.key ? C.clay : C.line,
+                border: `1px solid ${period === p.key ? C.ball : "rgba(245,242,232,0.25)"}`,
+                borderRadius: 4, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              {p.title}
+            </button>
+          ))}
+        </div>
       </div>
       {!data ? (
         <div style={{ background: C.clay, border: "1px solid rgba(245,242,232,0.2)", borderRadius: 8, padding: "22px 18px", color: C.mute, fontSize: 14, textAlign: "center" }}>
-          Crunching last month's results…
+          Crunching results…
         </div>
       ) : (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
