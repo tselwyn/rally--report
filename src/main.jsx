@@ -1206,7 +1206,7 @@ function App() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Fetch failed");
       const ms = parseLog(htmlToRows(data.html));
-      if (ms.length < 2) throw new Error("No match history found for this player yet.");
+      if (ms.length < 2) throw new Error("This player needs at least 2 completed matches before a scouting report is available.");
       setStats(computeStats(ms));
     } catch (e) {
       setError(e.message || "Couldn't load this player's matches.");
