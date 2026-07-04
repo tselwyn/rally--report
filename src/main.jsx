@@ -88,16 +88,30 @@ function parseChallenges(html) {
 // Estimates odds for a pending challenge using only data already on the page:
 // each player's ladder win %, rank gap, and current streak from the rankings
 // table. Logistic model, capped so it never claims near-certainty.
+// Remove rank markers like "#3" no matter where TennisRungs puts them
+// ("#3 John Doe", "John Doe (#3)", "John Doe #3") without touching
+// hyphenated last names.
 function stripRankPrefix(s) {
-  return s.replace(/^#\d+\s*/, "").replace(/\s+/g, " ").trim();
+  return s.replace(/#\d+/g, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
 }
+
+// Match a challenge-cell string to a rankings row. Tries the cleaned name
+// first, then falls back to finding a roster name contained in the raw text
+// (longest match wins, so "Cameron Jennings" beats a partial hit).
+function matchRowByName(rows, cellText) {
+  if (!rows || !cellText) return null;
+  const clean = stripRankPrefix(cellText).toLowerCase();
+  let r = rows.find((x) => x.name.toLowerCase() === clean);
+  if (r) return r;
+  const t = cellText.toLowerCase();
+  const hits = rows.filter((x) => x.name && t.includes(x.name.toLowerCase()));
+  if (hits.length) return hits.sort((a, b) => b.name.length - a.name.length)[0];
+  return null;
+}
+
 function challengeOdds(challenger, opponent, rows) {
-  const find = (n) => {
-    const target = stripRankPrefix(n).toLowerCase();
-    return rows.find((r) => r.name.toLowerCase() === target);
-  };
-  const a = find(challenger);
-  const b = find(opponent);
+  const a = matchRowByName(rows, challenger);
+  const b = matchRowByName(rows, opponent);
   if (!a || !b) return null;
   // Laplace-smoothed win % so 1-0 records aren't treated as 100%.
   const pct = (r) => {
@@ -922,10 +936,7 @@ function Rankings({ onPlayer }) {
   const [expanded, setExpanded] = useState(null);   // index of open challenge
   const [details, setDetails] = useState({});       // index -> {loading|error|data}
 
-  const findRow = (name) => {
-    const target = stripRankPrefix(name).toLowerCase();
-    return (rows || []).find((r) => r.name.toLowerCase() === target);
-  };
+  const findRow = (name) => matchRowByName(rows, name);
 
   const fetchPlayerLog = (teamId) =>
     fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(teamId))}`)
@@ -942,13 +953,14 @@ function Rankings({ onPlayer }) {
     const a = findRow(c.challenger);
     const b = findRow(c.opponent);
     if (!a?.teamId || !b?.teamId) {
-      setDetails((d) => ({ ...d, [i]: { error: "Match history unavailable for one of these players." } }));
+      const missing = !a?.teamId ? stripRankPrefix(c.challenger) : stripRankPrefix(c.opponent);
+      setDetails((d) => ({ ...d, [i]: { error: `Couldn't find ${missing} in the rankings table.` } }));
       return;
     }
     setDetails((d) => ({ ...d, [i]: { loading: true } }));
     Promise.all([fetchPlayerLog(a.teamId), fetchPlayerLog(b.teamId)])
       .then(([logA, logB]) => {
-        const h2hAll = h2hMatches(logA, c.opponent);
+        const h2hAll = h2hMatches(logA, b.name);
         const w = h2hAll.filter((m) => m.win).length;
         const l = h2hAll.length - w;
         const last = h2hAll[h2hAll.length - 1] || null;
