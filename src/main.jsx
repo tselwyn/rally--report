@@ -1136,9 +1136,13 @@ function Rankings({ onPlayer }) {
                             <span style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginRight: 10 }}>Head to head</span>
                             {det.data.h2h.w + det.data.h2h.l === 0 ? (
                               <span style={{ color: C.line }}>First meeting</span>
+                            ) : det.data.h2h.w === det.data.h2h.l ? (
+                              <span style={{ color: C.line, fontWeight: 700 }}>
+                                Tied {det.data.h2h.w}–{det.data.h2h.l}
+                              </span>
                             ) : (
                               <span style={{ color: C.line, fontWeight: 700 }}>
-                                {det.data.h2h.w >= det.data.h2h.l
+                                {det.data.h2h.w > det.data.h2h.l
                                   ? `${stripRankPrefix(c.challenger)} leads ${det.data.h2h.w}–${det.data.h2h.l}`
                                   : `${stripRankPrefix(c.opponent)} leads ${det.data.h2h.l}–${det.data.h2h.w}`}
                               </span>
