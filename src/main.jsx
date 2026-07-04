@@ -153,12 +153,46 @@ function capLogit(score, cap) {
   return { pA, pB: 100 - pA };
 }
 
-// Refined odds once both match logs are loaded: base score plus head-to-head
-// record (strongest signal on a small ladder) and last-5 form differential.
-function refinedOdds(a, b, h2h, formA, formB) {
-  const h2hTerm = Math.max(-1.5, Math.min(1.5, 0.3 * (h2h.w - h2h.l)));
-  const formTerm = 0.1 * (formA - formB); // each is net wins over last 5
-  return capLogit(rowScore(a, b) + h2hTerm + formTerm, 2.5);
+// Refined odds once both match logs are loaded. On top of the rankings-table
+// score, this folds in everything the logs give us:
+//  - head-to-head, recency-weighted (last meeting counts most)
+//  - H2H margin (a straight-sets win says more than a tiebreak escape)
+//  - recency-weighted form over the last 10 matches
+//  - quality of recent wins (beating top-half players counts extra)
+// Weights are heuristic — we can backtest and calibrate them once Rally
+// Report reads match data from Supabase.
+function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
+  let score = rowScore(a, b);
+
+  // Head-to-head: last 6 meetings, later meetings weighted heavier.
+  const recent = h2hAll.slice(-6);
+  recent.forEach((m, idx) => {
+    const w = 0.14 * Math.pow(1.3, idx); // most recent ≈ 0.5, oldest ≈ 0.14
+    const tight = /7-6|6-7|\(\d+-\d+\)/.test(m.score);
+    const sets = (m.score.match(/\d+-\d+/g) || []).length;
+    const margin = sets <= 2 && !tight ? 0.06 : 0; // decisive straight sets
+    score += (m.win ? 1 : -1) * (w + margin);
+  });
+
+  // Recency-weighted form: last 10 matches, each older match worth 15% less.
+  const form = (log) =>
+    log.slice(-10).reduce(
+      (s, m, i, arr) => s + (m.win ? 1 : -1) * Math.pow(0.85, arr.length - 1 - i),
+      0
+    );
+  score += 0.07 * (form(logA) - form(logB));
+
+  // Win quality: average strength of opponents beaten in the last 10.
+  // Beating #2 on a 30-player ladder ≈ 0.93; beating #28 ≈ 0.07.
+  const n = Math.max(ladderSize || 30, 2);
+  const quality = (log) => {
+    const ws = log.slice(-10).filter((m) => m.win && m.rank);
+    if (!ws.length) return 0;
+    return ws.reduce((s, m) => s + Math.max(0, n - m.rank) / n, 0) / ws.length;
+  };
+  score += 0.6 * (quality(logA) - quality(logB));
+
+  return capLogit(score, 2.5);
 }
 
 // Pull head-to-head matches vs `oppName` out of a player's match log.
@@ -172,9 +206,6 @@ function h2hMatches(log, oppName) {
   }
   return ms;
 }
-
-const netLast5 = (log) =>
-  log.slice(-5).reduce((n, m) => n + (m.win ? 1 : -1), 0);
 
 // Join-request form delivery (Formspree) and ladder organizer info.
 const JOIN_FORM_ENDPOINT = "https://formspree.io/f/xaqzrpdz";
@@ -964,9 +995,7 @@ function Rankings({ onPlayer }) {
         const w = h2hAll.filter((m) => m.win).length;
         const l = h2hAll.length - w;
         const last = h2hAll[h2hAll.length - 1] || null;
-        const formA = netLast5(logA);
-        const formB = netLast5(logB);
-        const odds = refinedOdds(a, b, { w, l }, formA, formB);
+        const odds = refinedOdds(a, b, h2hAll, logA, logB, rows.length);
         setDetails((d) => ({
           ...d,
           [i]: { data: { h2h: { w, l }, last, lastA5: logA.slice(-5), lastB5: logB.slice(-5), odds } },
