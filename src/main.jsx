@@ -84,6 +84,84 @@ function parseChallenges(html) {
   return out;
 }
 
+// ---------- CHALLENGE WIN PROBABILITY ----------
+// Estimates odds for a pending challenge using only data already on the page:
+// each player's ladder win %, rank gap, and current streak from the rankings
+// table. Logistic model, capped so it never claims near-certainty.
+function stripRankPrefix(s) {
+  return s.replace(/^#\d+\s*/, "").replace(/\s+/g, " ").trim();
+}
+function challengeOdds(challenger, opponent, rows) {
+  const find = (n) => {
+    const target = stripRankPrefix(n).toLowerCase();
+    return rows.find((r) => r.name.toLowerCase() === target);
+  };
+  const a = find(challenger);
+  const b = find(opponent);
+  if (!a || !b) return null;
+  // Laplace-smoothed win % so 1-0 records aren't treated as 100%.
+  const pct = (r) => {
+    const w = +r.wins || 0, l = +r.losses || 0;
+    return (w + 1) / (w + l + 2);
+  };
+  const streakVal = (r) => {
+    const m = (r.streak || "").match(/^([WL])\s*(\d+)/i);
+    if (!m) return 0;
+    const n = Math.min(+m[2], 5);
+    return m[1].toUpperCase() === "W" ? n : -n;
+  };
+  return capLogit(rowScore(a, b), 2.2); // cap at ~90/10
+}
+
+// Raw logistic score from rankings-table data only.
+function rowScore(a, b) {
+  const pct = (r) => {
+    const w = +r.wins || 0, l = +r.losses || 0;
+    return (w + 1) / (w + l + 2);
+  };
+  const streakVal = (r) => {
+    const m = (r.streak || "").match(/^([WL])\s*(\d+)/i);
+    if (!m) return 0;
+    const n = Math.min(+m[2], 5);
+    return m[1].toUpperCase() === "W" ? n : -n;
+  };
+  return (
+    3.0 * (pct(a) - pct(b)) +             // record quality
+    0.06 * ((+b.rank) - (+a.rank)) +      // higher ladder position edge
+    0.08 * (streakVal(a) - streakVal(b))  // recent form
+  );
+}
+
+function capLogit(score, cap) {
+  const s = Math.max(-cap, Math.min(cap, score));
+  const p = 1 / (1 + Math.exp(-s));
+  const pA = Math.round(p * 100);
+  return { pA, pB: 100 - pA };
+}
+
+// Refined odds once both match logs are loaded: base score plus head-to-head
+// record (strongest signal on a small ladder) and last-5 form differential.
+function refinedOdds(a, b, h2h, formA, formB) {
+  const h2hTerm = Math.max(-1.5, Math.min(1.5, 0.3 * (h2h.w - h2h.l)));
+  const formTerm = 0.1 * (formA - formB); // each is net wins over last 5
+  return capLogit(rowScore(a, b) + h2hTerm + formTerm, 2.5);
+}
+
+// Pull head-to-head matches vs `oppName` out of a player's match log.
+function h2hMatches(log, oppName) {
+  const norm = (s) => stripRankPrefix(s).toLowerCase();
+  const target = norm(oppName);
+  let ms = log.filter((m) => norm(m.opp) === target);
+  if (!ms.length) {
+    // Loose fallback in case the log spells the name slightly differently.
+    ms = log.filter((m) => norm(m.opp).includes(target) || target.includes(norm(m.opp)));
+  }
+  return ms;
+}
+
+const netLast5 = (log) =>
+  log.slice(-5).reduce((n, m) => n + (m.win ? 1 : -1), 0);
+
 // Join-request form delivery (Formspree) and ladder organizer info.
 const JOIN_FORM_ENDPOINT = "https://formspree.io/f/xaqzrpdz";
 const ORGANIZER = {
@@ -841,6 +919,51 @@ function Rankings({ onPlayer }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [challenges, setChallenges] = useState(null);
+  const [expanded, setExpanded] = useState(null);   // index of open challenge
+  const [details, setDetails] = useState({});       // index -> {loading|error|data}
+
+  const findRow = (name) => {
+    const target = stripRankPrefix(name).toLowerCase();
+    return (rows || []).find((r) => r.name.toLowerCase() === target);
+  };
+
+  const fetchPlayerLog = (teamId) =>
+    fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(teamId))}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.html) throw new Error("no log");
+        return parseLog(htmlToRows(data.html));
+      });
+
+  const toggleChallenge = (i, c) => {
+    if (expanded === i) { setExpanded(null); return; }
+    setExpanded(i);
+    if (details[i]) return; // already loaded or loading
+    const a = findRow(c.challenger);
+    const b = findRow(c.opponent);
+    if (!a?.teamId || !b?.teamId) {
+      setDetails((d) => ({ ...d, [i]: { error: "Match history unavailable for one of these players." } }));
+      return;
+    }
+    setDetails((d) => ({ ...d, [i]: { loading: true } }));
+    Promise.all([fetchPlayerLog(a.teamId), fetchPlayerLog(b.teamId)])
+      .then(([logA, logB]) => {
+        const h2hAll = h2hMatches(logA, c.opponent);
+        const w = h2hAll.filter((m) => m.win).length;
+        const l = h2hAll.length - w;
+        const last = h2hAll[h2hAll.length - 1] || null;
+        const formA = netLast5(logA);
+        const formB = netLast5(logB);
+        const odds = refinedOdds(a, b, { w, l }, formA, formB);
+        setDetails((d) => ({
+          ...d,
+          [i]: { data: { h2h: { w, l }, last, lastA5: logA.slice(-5), lastB5: logB.slice(-5), odds } },
+        }));
+      })
+      .catch(() =>
+        setDetails((d) => ({ ...d, [i]: { error: "Couldn't load match history." } }))
+      );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -912,26 +1035,100 @@ function Rankings({ onPlayer }) {
         </tbody>
       </table>
       <div style={{ marginTop: 16, color: C.mute, fontSize: 13, textAlign: "center" }}>
-        {rows.length} players · ladder record · tap a name for their full report
+        {rows.length} players · ladder record · tap a name for their full report · tap a challenge for head-to-head
       </div>
 
       {challenges && challenges.length > 0 && (
         <div style={{ marginTop: 28 }}>
           <Label>Pending Challenges ({challenges.length})</Label>
           <div style={{ background: "rgba(15,46,37,0.6)", border: "1px solid rgba(245,242,232,0.15)", borderRadius: 4, overflow: "hidden" }}>
-            {challenges.map((c, i) => (
-              <div
-                key={i}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < challenges.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none", flexWrap: "wrap" }}
-              >
-                <div style={{ flex: "1 1 auto", fontSize: 14, color: C.line }}>
-                  <span style={{ fontWeight: 600 }}>{c.challenger}</span>
-                  <span style={{ color: C.mute, margin: "0 8px" }}>vs</span>
-                  <span style={{ fontWeight: 600 }}>{c.opponent}</span>
+            {challenges.map((c, i) => {
+              const det = details[i];
+              const odds = det?.data?.odds || challengeOdds(c.challenger, c.opponent, rows);
+              const open = expanded === i;
+              const dots = (ms) =>
+                ms.map((m, j) => (
+                  <span
+                    key={j}
+                    title={`${fmtD(m.date)} vs ${m.opp}: ${m.win ? "W" : "L"} ${m.score}`}
+                    style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: m.win ? C.ball : C.red, marginRight: 4 }}
+                  />
+                ));
+              return (
+                <div
+                  key={i}
+                  onClick={() => toggleChallenge(i, c)}
+                  style={{ padding: "10px 14px", borderBottom: i < challenges.length - 1 ? "1px solid rgba(245,242,232,0.08)" : "none", cursor: "pointer" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 auto", fontSize: 14, color: C.line }}>
+                      <span style={{ fontWeight: 600, color: odds && odds.pA > odds.pB ? C.ball : C.line }}>{c.challenger}</span>
+                      <span style={{ color: C.mute, margin: "0 8px" }}>vs</span>
+                      <span style={{ fontWeight: 600, color: odds && odds.pB > odds.pA ? C.ball : C.line }}>{c.opponent}</span>
+                    </div>
+                    <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: C.mute, flexShrink: 0 }}>
+                      {c.date} <span style={{ marginLeft: 6 }}>{open ? "▾" : "▸"}</span>
+                    </div>
+                  </div>
+                  {odds && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "ui-monospace, monospace", fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: odds.pA >= odds.pB ? C.ball : C.mute, fontWeight: 700 }}>{odds.pA}%</span>
+                        <span style={{ color: C.mute, fontSize: 10, letterSpacing: 2, textTransform: "uppercase" }}>
+                          win probability{det?.data ? " · incl. head-to-head" : ""}
+                        </span>
+                        <span style={{ color: odds.pB > odds.pA ? C.ball : C.mute, fontWeight: 700 }}>{odds.pB}%</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 2, height: 4, borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ width: `${odds.pA}%`, background: odds.pA >= odds.pB ? C.ball : "rgba(245,242,232,0.3)", borderRadius: 2 }} />
+                        <div style={{ width: `${odds.pB}%`, background: odds.pB > odds.pA ? C.ball : "rgba(245,242,232,0.3)", borderRadius: 2 }} />
+                      </div>
+                    </div>
+                  )}
+                  {open && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(245,242,232,0.15)", fontSize: 13 }}>
+                      {det?.loading && <div style={{ color: C.mute }}>Loading match history...</div>}
+                      {det?.error && <div style={{ color: C.red }}>{det.error}</div>}
+                      {det?.data && (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={{ fontFamily: "ui-monospace, monospace" }}>
+                            <span style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginRight: 10 }}>Head to head</span>
+                            {det.data.h2h.w + det.data.h2h.l === 0 ? (
+                              <span style={{ color: C.line }}>First meeting</span>
+                            ) : (
+                              <span style={{ color: C.line, fontWeight: 700 }}>
+                                {det.data.h2h.w >= det.data.h2h.l
+                                  ? `${stripRankPrefix(c.challenger)} leads ${det.data.h2h.w}–${det.data.h2h.l}`
+                                  : `${stripRankPrefix(c.opponent)} leads ${det.data.h2h.l}–${det.data.h2h.w}`}
+                              </span>
+                            )}
+                          </div>
+                          {det.data.last && (
+                            <div style={{ fontFamily: "ui-monospace, monospace", color: C.mute, fontSize: 12 }}>
+                              Last meeting: {fmtD(det.data.last.date)} · {det.data.last.win ? stripRankPrefix(c.challenger) : stripRankPrefix(c.opponent)} won {det.data.last.score}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+                                {stripRankPrefix(c.challenger)} · last 5
+                              </div>
+                              {dots(det.data.lastA5)}
+                            </div>
+                            <div>
+                              <div style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+                                {stripRankPrefix(c.opponent)} · last 5
+                              </div>
+                              {dots(det.data.lastB5)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: C.mute, flexShrink: 0 }}>{c.date}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
