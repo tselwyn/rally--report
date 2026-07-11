@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
-// ---------- ROSTER (fallback only; live roster comes from the sheet) ----------
+// ---------- ROSTER (fallback only; live roster comes from the sheet) --- -------
 const ROSTER_FALLBACK = [
   { name: "Aboudi Tayara", teamId: "166714797" },
   { name: "Adrian Gacu", teamId: "163102950" },
