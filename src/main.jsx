@@ -1113,12 +1113,12 @@ function Rankings({ onPlayer }) {
                   </div>
                   {odds && (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "ui-monospace, monospace", fontSize: 12, marginBottom: 4 }}>
-                        <span style={{ color: odds.pA >= odds.pB ? C.ball : C.mute, fontWeight: 700 }}>{odds.pA}%</span>
-                        <span style={{ color: C.mute, fontSize: 10, letterSpacing: 2, textTransform: "uppercase" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, fontFamily: "ui-monospace, monospace", fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: odds.pA >= odds.pB ? C.ball : C.mute, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>{odds.pA}%</span>
+                        <span style={{ color: C.mute, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", minWidth: 0, textAlign: "center" }}>
                           win probability{det?.data ? " · incl. head-to-head" : ""}
                         </span>
-                        <span style={{ color: odds.pB > odds.pA ? C.ball : C.mute, fontWeight: 700 }}>{odds.pB}%</span>
+                        <span style={{ color: odds.pB > odds.pA ? C.ball : C.mute, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>{odds.pB}%</span>
                       </div>
                       <div style={{ display: "flex", gap: 2, height: 4, borderRadius: 2, overflow: "hidden" }}>
                         <div style={{ width: `${odds.pA}%`, background: odds.pA >= odds.pB ? C.ball : "rgba(245,242,232,0.3)", borderRadius: 2 }} />
