@@ -116,16 +116,17 @@ function challengeOdds(challenger, opponent, rows) {
   return capLogit(rowScore(a, b), 2.2); // cap at ~90/10
 }
 
-// Raw logistic score from rankings-table data only.
-function rowScore(a, b) {
-  // Laplace-smoothed win %, then shrunk toward 50% for small samples so a
-  // 3-0 record doesn't outrank a proven 15-5 one. Full weight at 8+ matches.
-  const pct = (r) => {
-    const w = +r.wins || 0, l = +r.losses || 0;
-    const smoothed = (w + 1) / (w + l + 2);
-    const conf = Math.min((w + l) / 8, 1);
-    return 0.5 + (smoothed - 0.5) * conf;
-  };
+// Laplace-smoothed win %, then shrunk toward 50% for small samples so a
+// 3-0 record doesn't outrank a proven 15-5 one. Full weight at 8+ matches.
+function smoothedPct(r) {
+  const w = +r.wins || 0, l = +r.losses || 0;
+  const smoothed = (w + 1) / (w + l + 2);
+  const conf = Math.min((w + l) / 8, 1);
+  return 0.5 + (smoothed - 0.5) * conf;
+}
+
+// Rank-gap and streak terms shared by both the collapsed and expanded models.
+function rankStreakScore(a, b) {
   const streakVal = (r) => {
     const m = (r.streak || "").match(/^([WL])\s*(\d+)/i);
     if (!m) return 0;
@@ -133,10 +134,48 @@ function rowScore(a, b) {
     return m[1].toUpperCase() === "W" ? n : -n;
   };
   return (
-    3.0 * (pct(a) - pct(b)) +             // record quality
     0.06 * ((+b.rank) - (+a.rank)) +      // higher ladder position edge
-    0.08 * (streakVal(a) - streakVal(b))  // recent form
+    0.08 * (streakVal(a) - streakVal(b))  // current streak
   );
+}
+
+// Raw logistic score from rankings-table data only.
+function rowScore(a, b) {
+  return 3.0 * (smoothedPct(a) - smoothedPct(b)) + rankStreakScore(a, b);
+}
+
+// Margin multiplier from a score string: ~1.0 for a typical result, up to
+// 1.3 for a blowout (6-0 6-0), down to 0.7 for a razor-thin one (7-6 7-6).
+// Retirements, walkovers, and anything unparseable count as a normal match
+// so one bogus scoreline can't swing a prediction.
+function marginFactor(score) {
+  if (!score) return 1;
+  if (/ret|def|w\/?o|forfeit|walkover/i.test(score)) return 1;
+  const sets = (score.replace(/\([^)]*\)/g, "").match(/\d{1,2}-\d{1,2}/g) || [])
+    .map((x) => x.split("-").map(Number))
+    .filter(([p, q]) => Math.max(p, q) <= 7 && Math.max(p, q) >= 6);
+  if (!sets.length) return 1;
+  let g1 = 0, g2 = 0;
+  sets.forEach(([p, q]) => { g1 += p; g2 += q; });
+  const tot = g1 + g2;
+  if (!tot) return 1;
+  const dom = Math.abs(g1 - g2) / tot; // 0 = dead even, 1 = double bagel
+  return Math.max(0.7, Math.min(1.3, 1 + 0.6 * (dom - 0.3)));
+}
+
+// Recency-weighted record over the last 15 logged matches: each older match
+// worth 12% less, each win/loss scaled by score margin, shrunk for small
+// samples (full weight at 8+ logged matches). Roughly -1..1.
+function recentRecord(log) {
+  const ms = log.slice(-15);
+  if (!ms.length) return 0;
+  let s = 0, wsum = 0;
+  ms.forEach((m, i) => {
+    const w = Math.pow(0.88, ms.length - 1 - i);
+    s += (m.win ? 1 : -1) * marginFactor(m.score) * w;
+    wsum += w;
+  });
+  return (s / wsum) * Math.min(ms.length / 8, 1);
 }
 
 function capLogit(score, cap) {
@@ -146,16 +185,25 @@ function capLogit(score, cap) {
   return { pA, pB: 100 - pA };
 }
 
-// Refined odds once both match logs are loaded. On top of the rankings-table
-// score, this folds in everything the logs give us:
+// Refined odds once both match logs are loaded. Uses everything the logs
+// give us:
+//  - recent record: last 15 matches, recency-weighted and scaled by score
+//    margin, blended in over the career record as log data allows — so an
+//    improving player isn't dragged down by an old losing season, and a
+//    fading one can't coast on past glory
 //  - head-to-head, recency-weighted (last meeting counts most)
 //  - H2H margin (a straight-sets win says more than a tiebreak escape)
-//  - recency-weighted form over the last 10 matches
 //  - quality of recent wins (beating top-half players counts extra)
 // Weights are heuristic — we can backtest and calibrate them once Rally
 // Report reads match data from Supabase.
 function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
-  let score = rowScore(a, b);
+  // Blend career record (standings) with recent record (logs). With 8+
+  // logged matches each, who you are NOW fully replaces career totals.
+  const c = Math.min(Math.min(logA.length, logB.length) / 8, 1);
+  let score =
+    (1 - c) * 3.0 * (smoothedPct(a) - smoothedPct(b)) +
+    c * 1.4 * (recentRecord(logA) - recentRecord(logB)) +
+    rankStreakScore(a, b);
 
   // Head-to-head: last 6 meetings, later meetings weighted heavier.
   const recent = h2hAll.slice(-6);
@@ -166,14 +214,6 @@ function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
     const margin = sets <= 2 && !tight ? 0.06 : 0; // decisive straight sets
     score += (m.win ? 1 : -1) * (w + margin);
   });
-
-  // Recency-weighted form: last 10 matches, each older match worth 15% less.
-  const form = (log) =>
-    log.slice(-10).reduce(
-      (s, m, i, arr) => s + (m.win ? 1 : -1) * Math.pow(0.85, arr.length - 1 - i),
-      0
-    );
-  score += 0.07 * (form(logA) - form(logB));
 
   // Win quality: average strength of opponents beaten in the last 10.
   // Beating #2 on a 30-player ladder ≈ 0.93; beating #28 ≈ 0.07.
@@ -1170,7 +1210,7 @@ function Rankings({ onPlayer }) {
           </div>
           <div style={{ marginTop: 10, color: C.mute, fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
             Odds based on: overall record (weighted heaviest), ladder rank gap, and current streak.
-            Tap a matchup for expanded odds that also factor in head-to-head history, recent form, and quality of wins.
+            Tap a matchup for expanded odds built on recent results (scaled by score margin), head-to-head history, and quality of wins.
           </div>
         </div>
       )}
