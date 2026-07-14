@@ -163,16 +163,28 @@ function marginFactor(score) {
   return Math.max(0.7, Math.min(1.3, 1 + 0.6 * (dom - 0.3)));
 }
 
+// Opponent-strength multiplier for a single result. Symmetric in both
+// directions: a win over a top player counts up to 1.4x, a win over a
+// bottom player as little as 0.6x — and losses mirror it, so losing to #2
+// barely dings you (0.6x) while losing to #28 stings (1.4x). Unknown
+// opponent rank = neutral 1.0.
+function oppFactor(win, rank, ladderSize) {
+  if (!rank) return 1;
+  const n = Math.max(ladderSize || 30, 2);
+  const q = Math.max(0, Math.min(1, (n - rank) / (n - 1))); // 1 = top, 0 = bottom
+  return 1 + 0.8 * (win ? q - 0.5 : 0.5 - q);
+}
+
 // Recency-weighted record over the last 15 logged matches: each older match
-// worth 12% less, each win/loss scaled by score margin, shrunk for small
-// samples (full weight at 8+ logged matches). Roughly -1..1.
-function recentRecord(log) {
+// worth 12% less, each result scaled by score margin AND opponent strength,
+// shrunk for small samples (full weight at 8+ logged matches). Roughly -1..1.
+function recentRecord(log, ladderSize) {
   const ms = log.slice(-15);
   if (!ms.length) return 0;
   let s = 0, wsum = 0;
   ms.forEach((m, i) => {
     const w = Math.pow(0.88, ms.length - 1 - i);
-    s += (m.win ? 1 : -1) * marginFactor(m.score) * w;
+    s += (m.win ? 1 : -1) * marginFactor(m.score) * oppFactor(m.win, m.rank, ladderSize) * w;
     wsum += w;
   });
   return (s / wsum) * Math.min(ms.length / 8, 1);
@@ -187,13 +199,15 @@ function capLogit(score, cap) {
 
 // Refined odds once both match logs are loaded. Uses everything the logs
 // give us:
-//  - recent record: last 15 matches, recency-weighted and scaled by score
-//    margin, blended in over the career record as log data allows — so an
-//    improving player isn't dragged down by an old losing season, and a
-//    fading one can't coast on past glory
+//  - recent record: last 15 matches, recency-weighted, each result scaled
+//    by score margin and opponent strength IN BOTH DIRECTIONS — wins over
+//    top players count extra, losses to top players count less against you.
+//    Blended in over the career record as log data allows, so an improving
+//    player isn't dragged down by an old losing season, and a fading one
+//    can't coast on past glory. (Opponent adjustment subsumes the old
+//    separate "win quality" term.)
 //  - head-to-head, recency-weighted (last meeting counts most)
 //  - H2H margin (a straight-sets win says more than a tiebreak escape)
-//  - quality of recent wins (beating top-half players counts extra)
 // Weights are heuristic — we can backtest and calibrate them once Rally
 // Report reads match data from Supabase.
 function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
@@ -202,7 +216,7 @@ function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
   const c = Math.min(Math.min(logA.length, logB.length) / 8, 1);
   let score =
     (1 - c) * 3.0 * (smoothedPct(a) - smoothedPct(b)) +
-    c * 1.4 * (recentRecord(logA) - recentRecord(logB)) +
+    c * 1.4 * (recentRecord(logA, ladderSize) - recentRecord(logB, ladderSize)) +
     rankStreakScore(a, b);
 
   // Head-to-head: last 6 meetings, later meetings weighted heavier.
@@ -214,16 +228,6 @@ function refinedOdds(a, b, h2hAll, logA, logB, ladderSize) {
     const margin = sets <= 2 && !tight ? 0.06 : 0; // decisive straight sets
     score += (m.win ? 1 : -1) * (w + margin);
   });
-
-  // Win quality: average strength of opponents beaten in the last 10.
-  // Beating #2 on a 30-player ladder ≈ 0.93; beating #28 ≈ 0.07.
-  const n = Math.max(ladderSize || 30, 2);
-  const quality = (log) => {
-    const ws = log.slice(-10).filter((m) => m.win && m.rank);
-    if (!ws.length) return 0;
-    return ws.reduce((s, m) => s + Math.max(0, n - m.rank) / n, 0) / ws.length;
-  };
-  score += 0.6 * (quality(logA) - quality(logB));
 
   return capLogit(score, 2.5);
 }
@@ -1210,7 +1214,7 @@ function Rankings({ onPlayer }) {
           </div>
           <div style={{ marginTop: 10, color: C.mute, fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
             Default odds use standings data: overall record (weighted heaviest), rank gap, and current streak.
-            Tap a matchup for deeper odds where recent results take over — weighted by score margin, head-to-head history, and quality of wins.
+            Tap a matchup for deeper odds where recent results take over — each result weighted by score margin and opponent strength (beating a top player counts extra, losing to one counts less against you), plus head-to-head history.
           </div>
         </div>
       )}
