@@ -113,25 +113,18 @@ function challengeOdds(challenger, opponent, rows) {
   const a = matchRowByName(rows, challenger);
   const b = matchRowByName(rows, opponent);
   if (!a || !b) return null;
-  // Laplace-smoothed win % so 1-0 records aren't treated as 100%.
-  const pct = (r) => {
-    const w = +r.wins || 0, l = +r.losses || 0;
-    return (w + 1) / (w + l + 2);
-  };
-  const streakVal = (r) => {
-    const m = (r.streak || "").match(/^([WL])\s*(\d+)/i);
-    if (!m) return 0;
-    const n = Math.min(+m[2], 5);
-    return m[1].toUpperCase() === "W" ? n : -n;
-  };
   return capLogit(rowScore(a, b), 2.2); // cap at ~90/10
 }
 
 // Raw logistic score from rankings-table data only.
 function rowScore(a, b) {
+  // Laplace-smoothed win %, then shrunk toward 50% for small samples so a
+  // 3-0 record doesn't outrank a proven 15-5 one. Full weight at 8+ matches.
   const pct = (r) => {
     const w = +r.wins || 0, l = +r.losses || 0;
-    return (w + 1) / (w + l + 2);
+    const smoothed = (w + 1) / (w + l + 2);
+    const conf = Math.min((w + l) / 8, 1);
+    return 0.5 + (smoothed - 0.5) * conf;
   };
   const streakVal = (r) => {
     const m = (r.streak || "").match(/^([WL])\s*(\d+)/i);
@@ -1174,6 +1167,10 @@ function Rankings({ onPlayer }) {
                 </div>
               );
             })}
+          </div>
+          <div style={{ marginTop: 10, color: C.mute, fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
+            Odds based on: overall record (weighted heaviest), ladder rank gap, and current streak.
+            Tap a matchup for expanded odds that also factor in head-to-head history, recent form, and quality of wins.
           </div>
         </div>
       )}
