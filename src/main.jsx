@@ -1209,8 +1209,8 @@ function Rankings({ onPlayer }) {
             })}
           </div>
           <div style={{ marginTop: 10, color: C.mute, fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
-            Odds based on: overall record (weighted heaviest), ladder rank gap, and current streak.
-            Tap a matchup for expanded odds built on recent results (scaled by score margin), head-to-head history, and quality of wins.
+            Default odds use standings data: overall record (weighted heaviest), rank gap, and current streak.
+            Tap a matchup for deeper odds where recent results take over — weighted by score margin, head-to-head history, and quality of wins.
           </div>
         </div>
       )}
