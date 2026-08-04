@@ -118,7 +118,7 @@ function loadCore() {
         push(ch, { date, rank: rankByName.get(op) ?? null, opp: op, win: c.winner_id === c.challenger_id, score });
         push(op, { date, rank: rankByName.get(ch) ?? null, opp: ch, win: c.winner_id === c.opponent_id, score });
       }
-      for (const arr of logs.values()) arr.sort((a, b) => b.date - a.date);
+      for (const arr of logs.values()) arr.sort((a, b) => a.date - b.date);
 
       const pending = challenges
         .filter((c) => c.status === "pending" || c.status === "accepted")
@@ -180,7 +180,10 @@ function loadLegacy() {
 async function getPlayerMatches(name) {
   const [core, legacy] = await Promise.all([loadCore(), loadLegacy()]);
   const merged = [...(core.logs.get(name) || []), ...(legacy.get(name) || [])];
-  merged.sort((a, b) => b.date - a.date);
+  // Oldest-first — the same order parseLog produced. Every consumer
+  // (recentRecord, h2h weights, FormStrip, the reversed log display)
+  // assumes ascending; do NOT change this to descending.
+  merged.sort((a, b) => a.date - b.date);
   return merged;
 }
 
