@@ -1442,6 +1442,70 @@ function LeaderBoards({ roster }) {
 }
 
 // ---------- APP ----------
+// ---------- ONE-TIME TENNISRUNGS ARCHIVE ----------
+// Pulls every rostered player's full TennisRungs log through the existing
+// proxy and downloads a ready-to-paste Supabase .sql file. Idempotent on the
+// Supabase side (unique index + on conflict do nothing), so clicking twice
+// is harmless. Remove this once the archive import is confirmed.
+const sqlEsc = (v) => String(v).replace(/'/g, "''");
+
+function buildLegacySql(all) {
+  const rows = [];
+  for (const p of all) {
+    for (const m of p.matches) {
+      const d = m.date;
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      rows.push(
+        `('${sqlEsc(p.name)}','${sqlEsc(m.opp)}',${m.win ? "true" : "false"},'${sqlEsc(m.score)}',${m.rank ?? "null"},'${iso}')`
+      );
+    }
+  }
+  if (!rows.length) return null;
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += 500) {
+    chunks.push(
+      "insert into legacy_matches (player_name, opponent_name, player_won, score, player_rank, played_on) values\n" +
+        rows.slice(i, i + 500).join(",\n") +
+        "\non conflict do nothing;"
+    );
+  }
+  return `-- TennisRungs archive generated ${new Date().toISOString()} — ${rows.length} rows\n` + chunks.join("\n\n");
+}
+
+function ArchiveLink({ roster }) {
+  const [state, setState] = useState("idle"); // idle | working | done | error
+  const run = async () => {
+    if (state === "working") return;
+    setState("working");
+    try {
+      const all = await fetchAllMatches(roster);
+      const got = all.filter((p) => p.matches.length);
+      const sql = buildLegacySql(all);
+      if (!sql) throw new Error("empty");
+      const blob = new Blob([sql], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "tennisrungs-archive.sql";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setState(`done (${got.length}/${roster.length} players had logs)`);
+    } catch {
+      setState("error");
+    }
+  };
+  return (
+    <span style={{ marginLeft: 10 }}>
+      ·{" "}
+      <a onClick={run} style={{ cursor: "pointer", color: C.mute, textDecoration: "underline" }}>
+        {state === "idle" && "archive history"}
+        {state === "working" && "archiving… (takes ~30s)"}
+        {typeof state === "string" && state.startsWith("done") && state}
+        {state === "error" && "archive failed — TennisRungs pages may be gone"}
+      </a>
+    </span>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState("players"); // "players" | "contacts"
   const [search, setSearch] = useState("");
@@ -1612,6 +1676,7 @@ function App() {
       </div>
       <footer style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "28px 16px 20px", borderTop: `1px solid ${C.mute}22`, marginTop: 8 }}>
         © Tyler Selwyn 2026
+        <ArchiveLink roster={roster} />
       </footer>
     </div>
   );
