@@ -64,6 +64,126 @@ const RANKINGS_URL =
 const CHALLENGES_URL =
   "https://app.tennisrungs.com/fxbg-tennis-club/tennis-ladders/fxbg-singles-tennis/challenges/131837707";
 
+// ---------- SUPABASE DATA LAYER ----------
+// Rally Report now reads from the FXBG Ladder Supabase project:
+//   players / challenges  -> live rankings, pending challenges, new match logs
+//   legacy_matches        -> the frozen TennisRungs archive (2022-2026)
+// Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel env vars.
+const SB_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+// Paged read (Supabase caps responses at 1000 rows).
+async function sbAll(table, query) {
+  const out = [];
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    // Legacy anon keys are JWTs and go in both headers; new sb_publishable_
+    // keys go in apikey only (the gateway rejects them as a Bearer token).
+    const headers = { apikey: SB_KEY, Range: `${from}-${from + page - 1}` };
+    if (SB_KEY.startsWith("ey")) headers.Authorization = `Bearer ${SB_KEY}`;
+    const r = await fetch(`${SB_URL}/rest/v1/${table}?${query}`, { headers });
+    if (!r.ok) throw new Error(`Couldn't load ${table} (status ${r.status})`);
+    const rows = await r.json();
+    out.push(...rows);
+    if (rows.length < page) return out;
+  }
+}
+
+// One shared load of players + challenges; everything derives client-side.
+let _core = null;
+function loadCore() {
+  if (!_core) {
+    _core = (async () => {
+      const [players, challenges] = await Promise.all([
+        sbAll("players", "select=id,name,rank,wins,losses,streak,rank_change,active,dropped&order=rank.asc"),
+        sbAll("challenges", "select=id,challenger_id,opponent_id,status,winner_id,score,reported_at,created_at"),
+      ]);
+      const nameById = new Map(players.map((p) => [p.id, p.name]));
+      const rankByName = new Map(players.map((p) => [p.name, p.rank]));
+
+      // New-era match logs, one entry per perspective (same shape as parseLog):
+      // { date, rank: opponent's rank, opp, win, score }
+      const logs = new Map();
+      const push = (name, m) => {
+        if (!logs.has(name)) logs.set(name, []);
+        logs.get(name).push(m);
+      };
+      for (const c of challenges) {
+        if (c.status !== "completed" || !c.winner_id) continue;
+        const ch = nameById.get(c.challenger_id);
+        const op = nameById.get(c.opponent_id);
+        if (!ch || !op) continue;
+        const date = new Date(c.reported_at || c.created_at);
+        const score = c.score || "";
+        push(ch, { date, rank: rankByName.get(op) ?? null, opp: op, win: c.winner_id === c.challenger_id, score });
+        push(op, { date, rank: rankByName.get(ch) ?? null, opp: ch, win: c.winner_id === c.opponent_id, score });
+      }
+      for (const arr of logs.values()) arr.sort((a, b) => b.date - a.date);
+
+      const pending = challenges
+        .filter((c) => c.status === "pending" || c.status === "accepted")
+        .map((c) => ({
+          challenger: nameById.get(c.challenger_id) || "?",
+          opponent: nameById.get(c.opponent_id) || "?",
+          date: new Date(c.created_at).toLocaleDateString(),
+        }));
+
+      // Same row shape parseRankings produced, so the model code is untouched.
+      const rankings = players
+        .filter((p) => p.active && !p.dropped)
+        .map((p) => ({
+          rank: String(p.rank),
+          name: p.name,
+          teamId: p.id,
+          wins: String(p.wins),
+          losses: String(p.losses),
+          streak: p.streak > 0 ? `W${p.streak}` : p.streak < 0 ? `L${-p.streak}` : "\u2013",
+          movement: p.rank_change > 0 ? "up" : p.rank_change < 0 ? "down" : "",
+          challenge: "",
+        }));
+
+      return { players, rankings, pending, logs };
+    })();
+    _core.catch(() => { _core = null; }); // allow retry after a failed load
+  }
+  return _core;
+}
+
+// Frozen TennisRungs archive, loaded once.
+let _legacy = null;
+function loadLegacy() {
+  if (!_legacy) {
+    _legacy = (async () => {
+      const rows = await sbAll(
+        "legacy_matches",
+        "select=player_name,opponent_name,player_won,score,player_rank,played_on&order=played_on.desc"
+      );
+      const logs = new Map();
+      for (const r of rows) {
+        if (!logs.has(r.player_name)) logs.set(r.player_name, []);
+        logs.get(r.player_name).push({
+          date: new Date(r.played_on + "T12:00:00"),
+          rank: r.player_rank ?? null,
+          opp: r.opponent_name,
+          win: !!r.player_won,
+          score: r.score || "",
+        });
+      }
+      return logs;
+    })();
+    _legacy.catch(() => { _legacy = null; });
+  }
+  return _legacy;
+}
+
+// Full career log: new-era matches merged with the TennisRungs archive, newest first.
+async function getPlayerMatches(name) {
+  const [core, legacy] = await Promise.all([loadCore(), loadLegacy()]);
+  const merged = [...(core.logs.get(name) || []), ...(legacy.get(name) || [])];
+  merged.sort((a, b) => b.date - a.date);
+  return merged;
+}
+
 // Parse the dedicated pending-challenges page (challenger vs opponent + date).
 function parseChallenges(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -1006,7 +1126,8 @@ function Rankings({ onPlayer }) {
 
   const findRow = (name) => matchRowByName(rows, name);
 
-  const fetchPlayerLog = (teamId) =>
+  const fetchPlayerLog = (name) => getPlayerMatches(name);
+  const _unusedFetchPlayerLog = (teamId) =>
     fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(teamId))}`)
       .then((r) => r.json())
       .then((data) => {
@@ -1020,13 +1141,13 @@ function Rankings({ onPlayer }) {
     if (details[i]) return; // already loaded or loading
     const a = findRow(c.challenger);
     const b = findRow(c.opponent);
-    if (!a?.teamId || !b?.teamId) {
-      const missing = !a?.teamId ? stripRankPrefix(c.challenger) : stripRankPrefix(c.opponent);
+    if (!a?.name || !b?.name) {
+      const missing = !a?.name ? stripRankPrefix(c.challenger) : stripRankPrefix(c.opponent);
       setDetails((d) => ({ ...d, [i]: { error: `Couldn't find ${missing} in the rankings table.` } }));
       return;
     }
     setDetails((d) => ({ ...d, [i]: { loading: true } }));
-    Promise.all([fetchPlayerLog(a.teamId), fetchPlayerLog(b.teamId)])
+    Promise.all([fetchPlayerLog(a.name), fetchPlayerLog(b.name)])
       .then(([logA, logB]) => {
         const h2hAll = h2hMatches(logA, b.name);
         const w = h2hAll.filter((m) => m.win).length;
@@ -1045,24 +1166,14 @@ function Rankings({ onPlayer }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/fetch-log?url=${encodeURIComponent(RANKINGS_URL)}`)
-      .then((r) => r.json())
-      .then((data) => {
+    loadCore()
+      .then((core) => {
         if (cancelled) return;
-        if (!data.html) throw new Error(data.error || "Couldn't load rankings");
-        const parsed = parseRankings(data.html);
-        if (!parsed.length) throw new Error("No rankings found.");
-        setRows(parsed);
+        if (!core.rankings.length) throw new Error("No rankings found.");
+        setRows(core.rankings);
+        setChallenges(core.pending);
       })
       .catch((e) => !cancelled && setError(e.message || "Couldn't load rankings."));
-
-    fetch(`/api/fetch-log?url=${encodeURIComponent(CHALLENGES_URL)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !data.html) return;
-        setChallenges(parseChallenges(data.html));
-      })
-      .catch(() => {});
 
     return () => { cancelled = true; };
   }, []);
@@ -1320,7 +1431,15 @@ const PERIODS = [
   { key: "ytd", title: "Year to Date", range: yearToDate },
 ];
 
-async function fetchPlayerMatches(teamId) {
+async function fetchPlayerMatches(name) {
+  try {
+    return await getPlayerMatches(name);
+  } catch {
+    return [];
+  }
+}
+
+async function _unusedFetchPlayerMatchesTR(teamId) {
   try {
     const r = await fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(teamId))}`);
     if (!r.ok) return [];
@@ -1340,7 +1459,7 @@ async function fetchAllMatches(roster) {
   for (let i = 0; i < roster.length; i += batchSize) {
     const batch = roster.slice(i, i + batchSize);
     const settled = await Promise.all(
-      batch.map(async (p) => ({ name: p.name, matches: await fetchPlayerMatches(p.teamId) }))
+      batch.map(async (p) => ({ name: p.name, matches: await fetchPlayerMatches(p.name) }))
     );
     all.push(...settled);
   }
@@ -1442,70 +1561,6 @@ function LeaderBoards({ roster }) {
 }
 
 // ---------- APP ----------
-// ---------- ONE-TIME TENNISRUNGS ARCHIVE ----------
-// Pulls every rostered player's full TennisRungs log through the existing
-// proxy and downloads a ready-to-paste Supabase .sql file. Idempotent on the
-// Supabase side (unique index + on conflict do nothing), so clicking twice
-// is harmless. Remove this once the archive import is confirmed.
-const sqlEsc = (v) => String(v).replace(/'/g, "''");
-
-function buildLegacySql(all) {
-  const rows = [];
-  for (const p of all) {
-    for (const m of p.matches) {
-      const d = m.date;
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      rows.push(
-        `('${sqlEsc(p.name)}','${sqlEsc(m.opp)}',${m.win ? "true" : "false"},'${sqlEsc(m.score)}',${m.rank ?? "null"},'${iso}')`
-      );
-    }
-  }
-  if (!rows.length) return null;
-  const chunks = [];
-  for (let i = 0; i < rows.length; i += 500) {
-    chunks.push(
-      "insert into legacy_matches (player_name, opponent_name, player_won, score, player_rank, played_on) values\n" +
-        rows.slice(i, i + 500).join(",\n") +
-        "\non conflict do nothing;"
-    );
-  }
-  return `-- TennisRungs archive generated ${new Date().toISOString()} — ${rows.length} rows\n` + chunks.join("\n\n");
-}
-
-function ArchiveLink({ roster }) {
-  const [state, setState] = useState("idle"); // idle | working | done | error
-  const run = async () => {
-    if (state === "working") return;
-    setState("working");
-    try {
-      const all = await fetchAllMatches(roster);
-      const got = all.filter((p) => p.matches.length);
-      const sql = buildLegacySql(all);
-      if (!sql) throw new Error("empty");
-      const blob = new Blob([sql], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "tennisrungs-archive.sql";
-      a.click();
-      URL.revokeObjectURL(a.href);
-      setState(`done (${got.length}/${roster.length} players had logs)`);
-    } catch {
-      setState("error");
-    }
-  };
-  return (
-    <span style={{ marginLeft: 10 }}>
-      ·{" "}
-      <a onClick={run} style={{ cursor: "pointer", color: C.mute, textDecoration: "underline" }}>
-        {state === "idle" && "archive history"}
-        {state === "working" && "archiving… (takes ~30s)"}
-        {typeof state === "string" && state.startsWith("done") && state}
-        {state === "error" && "archive failed — TennisRungs pages may be gone"}
-      </a>
-    </span>
-  );
-}
-
 function App() {
   const [tab, setTab] = useState("players"); // "players" | "contacts"
   const [search, setSearch] = useState("");
@@ -1516,24 +1571,24 @@ function App() {
 
   const [roster, setRoster] = useState(ROSTER_FALLBACK);
 
-  // Live scouting roster from Dad's published sheet — same source as Contacts.
-  // He edits the sheet, this updates on the next load. No code edits ever.
+  // Live scouting roster from the ladder app's Supabase players table.
+  // Matt manages players in the Admin tab; changes flow through on next load.
   useEffect(() => {
-    if (!CONTACTS_CSV_URL) return;
-    fetch(CONTACTS_CSV_URL)
-      .then((r) => (r.ok ? r.text() : Promise.reject()))
-      .then((t) => {
-        const parsed = parseSheet(t);
-        if (parsed.roster.length) setRoster(parsed.roster);
+    loadCore()
+      .then((core) => {
+        const r = core.players
+          .filter((p) => p.active && !p.dropped)
+          .map((p) => ({ name: p.name, teamId: p.id }));
+        if (r.length) setRoster(r);
       })
-      .catch(() => {}); // keep the bundled fallback if the fetch fails
+      .catch(() => {}); // keep the bundled fallback if Supabase is unreachable
   }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const tid = params.get("teamId");
-    if (tid) {
-      const player = roster.find((p) => p.teamId === tid) || { name: "", teamId: tid };
+    const nm = params.get("player");
+    if (nm) {
+      const player = roster.find((p) => p.name === nm) || { name: nm, teamId: nm };
       openPlayer(player, false);
     }
   }, [roster]);
@@ -1545,14 +1600,11 @@ function App() {
     setLoading(true);
     if (pushUrl) {
       const u = new URL(window.location);
-      u.searchParams.set("teamId", player.teamId);
+      u.searchParams.set("player", player.name);
       window.history.pushState({}, "", u);
     }
     try {
-      const r = await fetch(`/api/fetch-log?url=${encodeURIComponent(logUrl(player.teamId))}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Fetch failed");
-      const ms = parseLog(htmlToRows(data.html));
+      const ms = await getPlayerMatches(player.name);
       if (ms.length < 2) throw new Error("This player needs at least 2 completed matches before a scouting report is available.");
       setStats(computeStats(ms));
     } catch (e) {
@@ -1567,7 +1619,7 @@ function App() {
     setStats(null);
     setError("");
     const u = new URL(window.location);
-    u.searchParams.delete("teamId");
+    u.searchParams.delete("player");
     window.history.pushState({}, "", u);
   };
 
@@ -1676,7 +1728,6 @@ function App() {
       </div>
       <footer style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "28px 16px 20px", borderTop: `1px solid ${C.mute}22`, marginTop: 8 }}>
         © Tyler Selwyn 2026
-        <ArchiveLink roster={roster} />
       </footer>
     </div>
   );
