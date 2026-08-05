@@ -96,13 +96,13 @@ function loadCore() {
     _core = (async () => {
       const [players, challenges] = await Promise.all([
         sbAll("players", "select=id,name,rank,wins,losses,streak,rank_change,active,dropped&order=rank.asc"),
-        sbAll("challenges", "select=id,challenger_id,opponent_id,status,winner_id,score,reported_at,created_at"),
+        sbAll("challenges", "select=id,challenger_id,opponent_id,status,winner_id,score,reported_at,created_at,challenger_rank,opponent_rank"),
       ]);
       const nameById = new Map(players.map((p) => [p.id, p.name]));
       const rankByName = new Map(players.map((p) => [p.name, p.rank]));
 
       // New-era match logs, one entry per perspective (same shape as parseLog):
-      // { date, rank: opponent's rank, opp, win, score }
+      // { date, rank: opponent's rank (at match time when snapshotted, else current), opp, win, score }
       const logs = new Map();
       const push = (name, m) => {
         if (!logs.has(name)) logs.set(name, []);
@@ -115,8 +115,8 @@ function loadCore() {
         if (!ch || !op) continue;
         const date = new Date(c.reported_at || c.created_at);
         const score = c.score || "";
-        push(ch, { date, rank: rankByName.get(op) ?? null, opp: op, win: c.winner_id === c.challenger_id, score });
-        push(op, { date, rank: rankByName.get(ch) ?? null, opp: ch, win: c.winner_id === c.opponent_id, score });
+        push(ch, { date, rank: c.opponent_rank ?? rankByName.get(op) ?? null, opp: op, win: c.winner_id === c.challenger_id, score });
+        push(op, { date, rank: c.challenger_rank ?? rankByName.get(ch) ?? null, opp: ch, win: c.winner_id === c.opponent_id, score });
       }
       for (const arr of logs.values()) arr.sort((a, b) => a.date - b.date);
 
